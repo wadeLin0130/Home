@@ -454,16 +454,6 @@
                 }
             };
 
-            if (isLoading) {
-                return (
-                    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
-                        <Icon name="refresh-cw" className="animate-spin text-blue-500" size={32} />
-                        <p className="font-medium text-lg text-gray-700">正在與雲端資料庫同步...</p>
-                        <p className="text-sm">這可能需要幾秒鐘的時間</p>
-                    </div>
-                );
-            }
-
             const renderRecordView = () => (
                 <div className="p-4 space-y-4">
                     <div className="flex gap-2 mb-4">
@@ -923,8 +913,9 @@
             return (
                 <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
                     <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
-                        <div className="px-6 mb-8">
+                        <div className="px-6 mb-8 flex items-center justify-between">
                             <h1 className="font-bold text-xl text-gray-800 tracking-tight">家庭記帳本</h1>
+                            {isLoading && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500" title="同步中..." />}
                         </div>
                         <div className="flex flex-col gap-2 px-4">
                             {[
@@ -958,7 +949,10 @@
                     <div className="flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-0">
                         <header className="bg-white border-b sticky top-0 z-10">
                             <div className="px-4 py-3 flex justify-between items-center max-w-4xl mx-auto w-full">
-                                <h1 className="font-bold text-xl text-gray-800 tracking-tight md:hidden">家庭記帳本</h1>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="font-bold text-xl text-gray-800 tracking-tight md:hidden">家庭記帳本</h1>
+                                    {isLoading && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500 md:hidden" title="同步中..." />}
+                                </div>
                                 <div className="flex items-center gap-2 ml-auto">
                                     <span className="text-sm text-gray-500 hidden md:inline">目前填報者：</span>
                                     <select value={currentUser} onChange={e => setCurrentUser(e.target.value)} className="text-sm bg-gray-100 border-none rounded-full px-4 py-1.5 focus:ring-0 cursor-pointer outline-none">
