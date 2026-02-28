@@ -14,9 +14,18 @@
     <!-- 載入 Lucide Icons (使用 Feather Icons 作為替代，因 Lucide 無官方純瀏覽器 CDN) -->
     <script src="https://unpkg.com/feather-icons"></script>
     <style>
-        /* 隱藏未載入完成的內容 */
         body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
         #root { min-height: 100vh; }
+        
+        /* 隱藏所有 number input 的上下調整按鈕 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
     </style>
 </head>
 <body>
@@ -25,30 +34,32 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
 
-        // 圖示元件 (使用 Feather Icons 封裝以貼近原本的 Lucide 體驗)
-        // 修正：使用 dangerouslySetInnerHTML 來防止 React 和 Feather Icons 對 DOM 的操作衝突
+        // 圖表共用色碼
+        const CAT_COLORS = [
+            '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', 
+            '#06b6d4', '#3b82f6', '#8b5cf6', '#d946ef', '#ec4899', 
+            '#64748b', '#a3e635', '#14b8a6', '#6366f1'
+        ];
+        const getColor = (idx) => CAT_COLORS[idx % CAT_COLORS.length];
+
         const Icon = ({ name, size = 24, className = "" }) => {
             const svgString = feather.icons[name] ? feather.icons[name].toSvg({ width: size, height: size, class: className }) : '';
             return <span dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
         };
 
-        // Web App URL
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
 
         function App() {
-            // 基礎狀態
             const [isLoading, setIsLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('record');
             const [users, setUsers] = useState(['自己', '配偶']);
             const [currentUser, setCurrentUser] = useState('自己');
             const [wallets] = useState(['現金', '刷卡', '先用後付']);
             
-            // 資料狀態
             const [transactions, setTransactions] = useState([]);
             const [stockPrices, setStockPrices] = useState({});
             const [usdRate, setUsdRate] = useState(32.5);
 
-            // 記帳表單狀態
             const [recordForm, setRecordForm] = useState({
                 type: 'expense',
                 date: new Date().toISOString().split('T')[0],
@@ -60,7 +71,8 @@
                 note: '',
                 market: 'TW',
                 symbol: '',
-                shares: ''
+                shares: '',
+                isSell: false
             });
 
             const expenseCategories = ['飲食', '購物', '固定支出', '旅行', '工作', '其他'];
@@ -69,19 +81,16 @@
             const [editingRecordId, setEditingRecordId] = useState(null);
             const [recordMonth, setRecordMonth] = useState(new Date().toISOString().slice(0, 7));
 
-            // 錢包餘額調整狀態
             const [adjustingWallet, setAdjustingWallet] = useState(null);
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
 
-            // 轉帳表單狀態
             const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
 
-            // 新增使用者狀態
             const [newUser, setNewUser] = useState('');
 
-            // 分析視圖狀態
             const [analysisMonth, setAnalysisMonth] = useState(new Date().toISOString().slice(0, 7));
             const [chartType, setChartType] = useState('line');
+            const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
 
             const formatDateString = (dateVal) => {
                 if (!dateVal) return '';
@@ -143,11 +152,8 @@
                                 }
                             });
 
-                            if (newPrices['TWD=X']) {
-                                setUsdRate(newPrices['TWD=X']);
-                            } else if (newPrices['USDTWD']) {
-                                setUsdRate(newPrices['USDTWD']);
-                            }
+                            if (newPrices['TWD=X']) setUsdRate(newPrices['TWD=X']);
+                            else if (newPrices['USDTWD']) setUsdRate(newPrices['USDTWD']);
                             
                             setStockPrices(newPrices);
                         }
@@ -159,6 +165,10 @@
             useEffect(() => {
                 fetchCloudData();
             }, []);
+
+            useEffect(() => {
+                feather.replace();
+            });
 
             const displayTransactions = useMemo(() => {
                 return transactions.filter(t => t.date.startsWith(recordMonth));
@@ -179,7 +189,11 @@
                         if (balances[t.fromWallet] !== undefined) balances[t.fromWallet] -= t.amount;
                         if (balances[t.toWallet] !== undefined) balances[t.toWallet] += t.amount;
                     } else if (t.type === 'investment' && balances['現金'] !== undefined) {
-                        balances['現金'] -= t.amount; 
+                        if (Number(t.shares) < 0) {
+                            balances['現金'] += t.amount; 
+                        } else {
+                            balances['現金'] -= t.amount; 
+                        }
                     }
                 });
 
@@ -188,14 +202,32 @@
 
             const { portfolio, totalStockValue } = useMemo(() => {
                 const holdings = {};
-                transactions.forEach(t => {
+                // 以時間遞增排序來計算投資組合平均成本
+                const sortedTx = [...transactions].sort((a, b) => {
+                    const dateCmp = a.date.localeCompare(b.date);
+                    if (dateCmp !== 0) return dateCmp;
+                    return String(a.id).localeCompare(String(b.id)); 
+                });
+
+                sortedTx.forEach(t => {
                     if (t.type === 'investment') {
                         const market = t.market || 'TW';
                         const symbol = String(t.symbol || '').trim().toUpperCase();
                         const key = market === 'TW' ? `${symbol}.TW` : symbol;
                         if (!holdings[key]) holdings[key] = { symbol, market, shares: 0, cost: 0 };
-                        holdings[key].shares += (parseFloat(t.shares) || 0);
-                        holdings[key].cost += (parseFloat(t.amount) || 0);
+                        
+                        const txShares = parseFloat(t.shares) || 0;
+                        const txAmount = parseFloat(t.amount) || 0;
+
+                        if (txShares < 0) {
+                            const sharesToSell = Math.abs(txShares);
+                            const costPerShare = holdings[key].shares > 0 ? holdings[key].cost / holdings[key].shares : 0;
+                            holdings[key].shares -= sharesToSell;
+                            holdings[key].cost -= costPerShare * sharesToSell;
+                        } else {
+                            holdings[key].shares += txShares;
+                            holdings[key].cost += txAmount;
+                        }
                     }
                 });
                 
@@ -207,10 +239,7 @@
                     const cleanSymbol = symbolUpper.replace(/\.TW$/, '').replace(/^TPE:/, '');
                     
                     const possibleKeys = [
-                        cleanSymbol,
-                        `${cleanSymbol}.TW`,
-                        `TPE:${cleanSymbol}`,
-                        `${cleanSymbol}:TPE`
+                        cleanSymbol, `${cleanSymbol}.TW`, `TPE:${cleanSymbol}`, `${cleanSymbol}:TPE`
                     ];
                     
                     let price = null;
@@ -223,17 +252,10 @@
 
                     if (price === null) {
                         const fuzzyKey = Object.keys(stockPrices).find(k => k.includes(cleanSymbol));
-                        if (fuzzyKey) {
-                            price = stockPrices[fuzzyKey];
-                        }
+                        if (fuzzyKey) price = stockPrices[fuzzyKey];
                     }
                     
-                    let currentVal = 0;
-                    if (price) {
-                        currentVal = h.market === 'TW' ? price * h.shares : price * h.shares * usdRate;
-                    } else {
-                        currentVal = h.cost; 
-                    }
+                    let currentVal = price ? (h.market === 'TW' ? price * h.shares : price * h.shares * usdRate) : h.cost;
                     
                     h.resolvedPrice = price;
                     h.currentValue = currentVal;
@@ -266,6 +288,8 @@
                     percentage: totalExpense ? ((categoryTotals[cat] / totalExpense) * 100).toFixed(1) : 0
                 })).sort((a, b) => b.value - a.value);
 
+                const availableCats = Array.from(new Set(transactions.filter(t => t.type === 'expense').map(t => t.category)));
+
                 const trendData = [];
                 const today = new Date();
                 for (let i = 5; i >= 0; i--) {
@@ -273,14 +297,18 @@
                     const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                     const monthLabel = `${d.getMonth() + 1}月`;
                     
-                    const monthTotal = transactions
-                        .filter(t => t.date.startsWith(monthStr) && t.type === 'expense')
-                        .reduce((sum, t) => sum + t.amount, 0);
+                    const mTrans = transactions.filter(t => t.date.startsWith(monthStr) && t.type === 'expense');
+                    const point = { month: monthLabel, monthStr, total: 0, categories: {} };
+                    
+                    mTrans.forEach(t => {
+                        point.total += t.amount;
+                        point.categories[t.category] = (point.categories[t.category] || 0) + t.amount;
+                    });
                         
-                    trendData.push({ month: monthLabel, value: monthTotal });
+                    trendData.push(point);
                 }
 
-                return { totalExpense, totalIncome, categoriesList, trendData };
+                return { totalExpense, totalIncome, categoriesList, trendData, availableCats };
             }, [transactions, analysisMonth]);
 
             const handleAddRecord = (e) => {
@@ -298,14 +326,15 @@
 
                 if (recordForm.type === 'investment') {
                     if (!recordForm.symbol || !recordForm.shares) return;
+                    const absoluteShares = Math.abs(parseFloat(recordForm.shares));
                     recordData = {
                         ...recordData,
                         market: recordForm.market,
                         symbol: recordForm.symbol.toUpperCase(),
-                        shares: parseFloat(recordForm.shares),
+                        shares: recordForm.isSell ? -absoluteShares : absoluteShares,
                         wallet: '現金', 
                         category: '投資',
-                        itemName: `${recordForm.market === 'TW' ? '台股' : '美股'} ${recordForm.symbol.toUpperCase()}`
+                        itemName: `${recordForm.market === 'TW' ? '台股' : '美股'} ${recordForm.symbol.toUpperCase()} (${recordForm.isSell ? '賣出' : '買入'})`
                     };
                 } else {
                     if (!recordForm.itemName) return;
@@ -331,23 +360,20 @@
 
                 syncWithBackend({ action: isEdit ? 'edit' : 'add', record: recordData });
 
-                if (recordForm.type === 'investment' && !isEdit) {
+                if (recordForm.type === 'investment' && !isEdit && !recordForm.isSell) {
                     syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
                 }
                 
                 setRecordForm(prev => ({
-                    ...prev,
-                    itemName: '',
-                    amount: '',
-                    note: '',
-                    customCategory: '',
-                    symbol: '',
-                    shares: ''
+                    ...prev, itemName: '', amount: '', note: '', customCategory: '', symbol: '', shares: '', isSell: false
                 }));
             };
 
             const handleEditRecord = (record) => {
                 const isCustom = record.type !== 'investment' && !expenseCategories.includes(record.category) && !incomeCategories.includes(record.category);
+                const sharesVal = parseFloat(record.shares);
+                const isSell = record.type === 'investment' && sharesVal < 0;
+                
                 setRecordForm({
                     type: record.type,
                     date: record.date,
@@ -359,7 +385,8 @@
                     note: record.note || '',
                     market: record.market || 'TW',
                     symbol: record.symbol || '',
-                    shares: record.shares ? record.shares.toString() : ''
+                    shares: record.shares ? Math.abs(sharesVal).toString() : '',
+                    isSell: isSell
                 });
                 setEditingRecordId(record.id);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -367,7 +394,7 @@
 
             const handleCancelEdit = () => {
                 setEditingRecordId(null);
-                setRecordForm(prev => ({ ...prev, amount: '', itemName: '', note: '', symbol: '', shares: '' }));
+                setRecordForm(prev => ({ ...prev, amount: '', itemName: '', note: '', symbol: '', shares: '', isSell: false }));
             };
 
             const handleDeleteRecord = (id) => {
@@ -435,6 +462,14 @@
                 }
             };
 
+            const toggleAnalysisCat = (cat) => {
+                if (selectedAnalysisCats.includes(cat)) {
+                    setSelectedAnalysisCats(selectedAnalysisCats.filter(c => c !== cat));
+                } else {
+                    setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
+                }
+            };
+
             if (isLoading) {
                 return (
                     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
@@ -450,7 +485,7 @@
                     <div className="flex gap-2 mb-4">
                         <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>支出</button>
                         <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>收入</button>
-                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>投資</button>
+                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>投資</button>
                     </div>
 
                     <form onSubmit={handleAddRecord} className="space-y-4 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
@@ -467,29 +502,53 @@
 
                         {recordForm.type === 'investment' ? (
                             <React.Fragment>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
-                                    <div className="flex gap-2">
-                                        <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
-                                        <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
-                                    </div>
+                                <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: false, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${!recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-600'}`}>買入庫存</button>
+                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: true, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-600'}`}>賣出庫存</button>
                                 </div>
-                                <div className="flex gap-3">
-                                    <div className="flex-1">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
-                                        <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
+
+                                {!recordForm.isSell && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
+                                        <div className="flex gap-2">
+                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
+                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
+                                        </div>
                                     </div>
+                                )}
+                                
+                                <div className="flex gap-3">
+                                    {recordForm.isSell ? (
+                                        <div className="flex-1">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">選擇賣出股票</label>
+                                            <select value={recordForm.symbol} onChange={e => {
+                                                const selected = portfolio.find(p => p.symbol === e.target.value);
+                                                setRecordForm({...recordForm, symbol: e.target.value, market: selected ? selected.market : 'TW'});
+                                            }} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required>
+                                                <option value="">請選擇庫存</option>
+                                                {portfolio.map(p => <option key={p.symbol} value={p.symbol}>{p.symbol} (可賣: {p.shares} 股)</option>)}
+                                                {recordForm.symbol && !portfolio.find(p => p.symbol === recordForm.symbol) && (
+                                                    <option value={recordForm.symbol}>{recordForm.symbol} (已售完)</option>
+                                                )}
+                                            </select>
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
+                                            <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
+                                        </div>
+                                    )}
                                     <div className="flex-1">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">購買股數</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出股數' : '購買股數'}</label>
                                         <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">扣款金額 (TWD)</label>
-                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder="本次投資花費的新台幣總額" min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出總金額 (TWD)' : '扣款總金額 (TWD)'}</label>
+                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder={`本次交易的總新台幣`} min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">扣款帳戶</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
                                     <div className="p-3 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
                                         <span>現金</span>
                                         <span className="text-sm font-medium">餘額: ${walletBalances['現金'].toLocaleString()}</span>
@@ -561,43 +620,49 @@
                             </div>
                         </div>
                         <div className="space-y-3">
-                            {displayTransactions.map(record => (
-                                <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
-                                                {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
+                            {displayTransactions.map(record => {
+                                const isInvestSell = record.type === 'investment' && parseFloat(record.shares) < 0;
+                                const isExpenseLike = record.type === 'expense' || (record.type === 'investment' && !isInvestSell);
+                                const isIncomeLike = record.type === 'income' || isInvestSell;
+
+                                return (
+                                    <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
+                                                    {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
+                                                </span>
+                                                <span className="text-xs md:text-sm text-gray-500 whitespace-nowrap">{record.date}</span>
+                                                <span className="text-xs md:text-sm text-gray-500 hidden md:inline truncate">• {record.user}</span>
+                                            </div>
+                                            <div className="font-medium text-gray-900 truncate text-sm md:text-base">
+                                                {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                                                {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
+                                            </div>
+                                            <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
+                                                {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
+                                                {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
+                                                {record.note && <span>• 備註: {record.note}</span>}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2 shrink-0">
+                                            <span className={`font-bold text-sm md:text-base ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                                {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
                                             </span>
-                                            <span className="text-xs md:text-sm text-gray-500 whitespace-nowrap">{record.date}</span>
-                                            <span className="text-xs md:text-sm text-gray-500 hidden md:inline truncate">• {record.user}</span>
-                                        </div>
-                                        <div className="font-medium text-gray-900 truncate text-sm md:text-base">
-                                            {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
-                                            {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
-                                        </div>
-                                        <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
-                                            {record.type === 'investment' && <span>股數: {record.shares}</span>}
-                                            {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
-                                            {record.note && <span>• 備註: {record.note}</span>}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2 shrink-0">
-                                        <span className={`font-bold text-sm md:text-base ${record.type === 'expense' ? 'text-rose-600' : record.type === 'income' ? 'text-emerald-600' : record.type === 'investment' ? 'text-indigo-600' : 'text-gray-700'}`}>
-                                            {record.type === 'expense' || record.type === 'investment' ? '-' : record.type === 'income' ? '+' : ''}${record.amount.toLocaleString()}
-                                        </span>
-                                        <div className="flex gap-1 md:gap-2">
-                                            {record.type !== 'transfer' && (
-                                                <button onClick={() => handleEditRecord(record)} className="p-1 md:p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯">
-                                                    <Icon name="edit-2" size={16} />
+                                            <div className="flex gap-1 md:gap-2">
+                                                {record.type !== 'transfer' && (
+                                                    <button onClick={() => handleEditRecord(record)} className="p-1 md:p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯">
+                                                        <Icon name="edit-2" size={16} />
+                                                    </button>
+                                                )}
+                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 md:p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除">
+                                                    <Icon name="trash-2" size={16} />
                                                 </button>
-                                            )}
-                                            <button onClick={() => handleDeleteRecord(record.id)} className="p-1 md:p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除">
-                                                <Icon name="trash-2" size={16} />
-                                            </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                             {displayTransactions.length === 0 && <p className="text-center text-gray-400 py-8 text-sm bg-white rounded-xl border border-gray-100 border-dashed">本月暫無紀錄</p>}
                         </div>
                     </div>
@@ -715,103 +780,157 @@
                 );
             };
 
-            const renderAnalysisView = () => (
-                <div className="p-4 space-y-6">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-gray-800">月度分析</h3>
-                        <input type="month" value={analysisMonth} onChange={e => setAnalysisMonth(e.target.value)} className="p-2 border rounded-lg text-sm outline-none" />
-                    </div>
+            const renderAnalysisView = () => {
+                let maxVal = 1;
+                if (selectedAnalysisCats.length === 0) {
+                    maxVal = Math.max(...analysisData.trendData.map(d => d.total), 1);
+                } else {
+                    if (chartType === 'bar') {
+                        maxVal = Math.max(...analysisData.trendData.map(d => selectedAnalysisCats.reduce((sum, cat) => sum + (d.categories[cat] || 0), 0)), 1);
+                    } else {
+                        selectedAnalysisCats.forEach(cat => {
+                            const maxCat = Math.max(...analysisData.trendData.map(d => d.categories[cat] || 0));
+                            if (maxCat > maxVal) maxVal = maxCat;
+                        });
+                    }
+                }
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                            <p className="text-emerald-800 text-sm font-medium mb-1">總收入</p>
-                            <p className="text-xl font-bold text-emerald-600">${analysisData.totalIncome.toLocaleString()}</p>
+                return (
+                    <div className="p-4 space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-800">月度分析</h3>
+                            <input type="month" value={analysisMonth} onChange={e => setAnalysisMonth(e.target.value)} className="p-2 border rounded-lg text-sm outline-none" />
                         </div>
-                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
-                            <p className="text-rose-800 text-sm font-medium mb-1">總支出</p>
-                            <p className="text-xl font-bold text-rose-600">${analysisData.totalExpense.toLocaleString()}</p>
-                        </div>
-                    </div>
 
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                        <h4 className="text-sm font-medium text-gray-700 mb-4">支出類別比例</h4>
-                        <div className="space-y-3">
-                            {analysisData.categoriesList.length > 0 ? analysisData.categoriesList.map((cat, idx) => (
-                                <div key={idx} className="space-y-1">
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-gray-600">{cat.name}</span>
-                                        <span className="font-medium">${cat.value.toLocaleString()} ({cat.percentage}%)</span>
-                                    </div>
-                                    <div className="w-full bg-gray-100 rounded-full h-2">
-                                        <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${cat.percentage}%` }} />
-                                    </div>
-                                </div>
-                            )) : <p className="text-sm text-gray-400 text-center py-4">無支出紀錄</p>}
-                        </div>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                        <div className="flex items-center justify-between mb-6">
-                            <h4 className="text-sm font-medium text-gray-700">近六個月支出趨勢</h4>
-                            <div className="flex gap-2">
-                                <button onClick={() => setChartType('line')} className={`p-1.5 rounded ${chartType === 'line' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="trending-up" size={16} /></button>
-                                <button onClick={() => setChartType('bar')} className={`p-1.5 rounded ${chartType === 'bar' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="bar-chart-2" size={16} /></button>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                                <p className="text-emerald-800 text-sm font-medium mb-1">總收入</p>
+                                <p className="text-xl font-bold text-emerald-600">${analysisData.totalIncome.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
+                                <p className="text-rose-800 text-sm font-medium mb-1">總支出</p>
+                                <p className="text-xl font-bold text-rose-600">${analysisData.totalExpense.toLocaleString()}</p>
                             </div>
                         </div>
-                        
-                        <div className="h-40 relative flex items-end">
-                            {chartType === 'bar' ? (
-                                <div className="w-full h-full flex items-end gap-2 px-2">
-                                    {analysisData.trendData.map((d, i) => {
-                                        const max = Math.max(...analysisData.trendData.map(t => t.value), 1);
-                                        const height = `${(d.value / max) * 100}%`;
-                                        return (
-                                            <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
-                                                <div className="w-full bg-blue-400 rounded-t-sm relative transition-all group-hover:bg-blue-500" style={{ height: d.value === 0 ? '1px' : height }}>
-                                                    <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">
-                                                        ${d.value}
-                                                    </div>
+
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <h4 className="text-sm font-medium text-gray-700 mb-3">比較特定類別趨勢</h4>
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                {analysisData.availableCats.map((cat, idx) => {
+                                    const isSelected = selectedAnalysisCats.includes(cat);
+                                    const color = isSelected ? getColor(selectedAnalysisCats.indexOf(cat)) : '#e5e7eb';
+                                    return (
+                                        <button
+                                            key={cat}
+                                            onClick={() => toggleAnalysisCat(cat)}
+                                            className={`px-3 py-1 text-xs rounded-full border transition-all ${isSelected ? 'text-white' : 'text-gray-600 bg-white'}`}
+                                            style={{ backgroundColor: isSelected ? color : 'transparent', borderColor: isSelected ? color : '#e5e7eb' }}
+                                        >
+                                            {cat}
+                                        </button>
+                                    )
+                                })}
+                                {selectedAnalysisCats.length > 0 && (
+                                    <button onClick={() => setSelectedAnalysisCats([])} className="px-3 py-1 text-xs rounded-full border border-gray-300 text-gray-500 hover:bg-gray-50">
+                                        清除選擇 (顯示總計)
+                                    </button>
+                                )}
+                            </div>
+                            <div className="space-y-3 border-t pt-4">
+                                {analysisData.categoriesList.length > 0 ? analysisData.categoriesList.map((cat, idx) => (
+                                    <div key={idx} className="space-y-1">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-600">{cat.name}</span>
+                                            <span className="font-medium">${cat.value.toLocaleString()} ({cat.percentage}%)</span>
+                                        </div>
+                                        <div className="w-full bg-gray-100 rounded-full h-2">
+                                            <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${cat.percentage}%` }} />
+                                        </div>
+                                    </div>
+                                )) : <p className="text-sm text-gray-400 text-center py-4">無支出紀錄</p>}
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <div className="flex items-center justify-between mb-6">
+                                <h4 className="text-sm font-medium text-gray-700">近六個月支出趨勢</h4>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setChartType('line')} className={`p-1.5 rounded ${chartType === 'line' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="trending-up" size={16} /></button>
+                                    <button onClick={() => setChartType('bar')} className={`p-1.5 rounded ${chartType === 'bar' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="bar-chart-2" size={16} /></button>
+                                </div>
+                            </div>
+                            
+                            <div className="h-40 relative flex items-end">
+                                {chartType === 'bar' ? (
+                                    <div className="w-full h-full flex items-end gap-2 px-2">
+                                        {analysisData.trendData.map((d, i) => (
+                                            <div key={i} className="flex-1 flex flex-col justify-end items-center gap-2 group h-full">
+                                                <div className="w-full flex flex-col justify-end h-full">
+                                                    {selectedAnalysisCats.length === 0 ? (
+                                                        <div className="w-full bg-blue-400 relative transition-all group-hover:bg-blue-500 rounded-t-sm" style={{ height: `${(d.total / maxVal) * 100}%` }}>
+                                                            <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">${d.total}</div>
+                                                        </div>
+                                                    ) : (
+                                                        selectedAnalysisCats.map((cat, idx) => {
+                                                            const val = d.categories[cat] || 0;
+                                                            return <div key={cat} style={{ height: `${(val / maxVal) * 100}%`, backgroundColor: getColor(idx) }} className="w-full transition-all" title={`${cat}: ${val}`} />
+                                                        })
+                                                    )}
                                                 </div>
                                                 <span className="text-xs text-gray-500">{d.month}</span>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="w-full h-full relative">
-                                    <svg className="w-full h-[calc(100%-24px)] overflow-visible" preserveAspectRatio="none">
-                                        {(() => {
-                                            const max = Math.max(...analysisData.trendData.map(t => t.value), 1);
-                                            const dataLen = analysisData.trendData.length;
-                                            const points = analysisData.trendData.map((d, i) => {
-                                                const x = (i / (dataLen - 1)) * 100;
-                                                const y = 100 - ((d.value / max) * 100);
-                                                return `${x}%,${y}%`;
-                                            }).join(' ');
-                                            
-                                            return (
-                                                <React.Fragment>
-                                                    <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={points} />
-                                                    {analysisData.trendData.map((d, i) => (
-                                                        <circle key={i} cx={`${(i / (dataLen - 1)) * 100}%`} cy={`${100 - ((d.value / max) * 100)}%`} r="4" fill="#ffffff" stroke="#3b82f6" strokeWidth="2" />
-                                                    ))}
-                                                </React.Fragment>
-                                            );
-                                        })()}
-                                    </svg>
-                                    <div className="absolute bottom-0 w-full flex justify-between px-1">
-                                        {analysisData.trendData.map((d, i) => (
-                                            <span key={i} className="text-xs text-gray-500 transform -translate-x-1/2" style={{ left: `${(i / (analysisData.trendData.length - 1)) * 100}%`, position: i === 0 || i === analysisData.trendData.length - 1 ? 'relative' : 'absolute', transform: i===0 ? 'none' : (i === analysisData.trendData.length - 1 ? 'translateX(0)' : 'translateX(-50%)') }}>
-                                                {d.month}
-                                            </span>
                                         ))}
                                     </div>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="w-full h-full relative">
+                                        <svg className="w-full h-[calc(100%-24px)] overflow-visible" preserveAspectRatio="none">
+                                            {selectedAnalysisCats.length === 0 ? (() => {
+                                                const points = analysisData.trendData.map((d, i) => {
+                                                    const x = (i / (analysisData.trendData.length - 1)) * 100;
+                                                    const y = 100 - ((d.total / maxVal) * 100);
+                                                    return `${x}%,${y}%`;
+                                                }).join(' ');
+                                                
+                                                return (
+                                                    <React.Fragment>
+                                                        <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={points} />
+                                                        {analysisData.trendData.map((d, i) => (
+                                                            <circle key={i} cx={`${(i / (analysisData.trendData.length - 1)) * 100}%`} cy={`${100 - ((d.total / maxVal) * 100)}%`} r="4" fill="#ffffff" stroke="#3b82f6" strokeWidth="2" />
+                                                        ))}
+                                                    </React.Fragment>
+                                                );
+                                            })() : (
+                                                selectedAnalysisCats.map((cat, idx) => {
+                                                    const points = analysisData.trendData.map((d, i) => {
+                                                        const x = (i / (analysisData.trendData.length - 1)) * 100;
+                                                        const y = 100 - (((d.categories[cat] || 0) / maxVal) * 100);
+                                                        return `${x}%,${y}%`;
+                                                    }).join(' ');
+                                                    return (
+                                                        <React.Fragment key={cat}>
+                                                            <polyline fill="none" stroke={getColor(idx)} strokeWidth="2" points={points} />
+                                                            {analysisData.trendData.map((d, i) => (
+                                                                <circle key={`${cat}-${i}`} cx={`${(i / (analysisData.trendData.length - 1)) * 100}%`} cy={`${100 - (((d.categories[cat] || 0) / maxVal) * 100)}%`} r="4" fill="#ffffff" stroke={getColor(idx)} strokeWidth="2" />
+                                                            ))}
+                                                        </React.Fragment>
+                                                    );
+                                                })
+                                            )}
+                                        </svg>
+                                        <div className="absolute bottom-0 w-full flex justify-between px-1">
+                                            {analysisData.trendData.map((d, i) => (
+                                                <span key={i} className="text-xs text-gray-500 transform -translate-x-1/2" style={{ left: `${(i / (analysisData.trendData.length - 1)) * 100}%`, position: i === 0 || i === analysisData.trendData.length - 1 ? 'relative' : 'absolute', transform: i===0 ? 'none' : (i === analysisData.trendData.length - 1 ? 'translateX(0)' : 'translateX(-50%)') }}>
+                                                    {d.month}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            );
+                );
+            };
 
             const renderSettingsView = () => (
                 <div className="p-4 space-y-6">
