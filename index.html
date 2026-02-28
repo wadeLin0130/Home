@@ -52,8 +52,8 @@
         function App() {
             const [isLoading, setIsLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('record');
-            const [users, setUsers] = useState(['自己', '配偶']);
-            const [currentUser, setCurrentUser] = useState('自己');
+            const users = ['我', '寶寶'];
+            const [currentUser, setCurrentUser] = useState('我');
             const [wallets] = useState(['現金', '刷卡', '先用後付']);
             
             const [transactions, setTransactions] = useState([]);
@@ -85,8 +85,6 @@
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
 
             const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
-
-            const [newUser, setNewUser] = useState('');
 
             const [analysisMonth, setAnalysisMonth] = useState(new Date().toISOString().slice(0, 7));
             const [chartType, setChartType] = useState('line');
@@ -127,12 +125,6 @@
                                 return String(b.id).localeCompare(String(a.id));
                             });
                             setTransactions(parsedRecords);
-                            
-                            const uniqueUsers = [...new Set(parsedRecords.map(r => r.user).filter(Boolean))];
-                            if (uniqueUsers.length > 0) {
-                                const mergedUsers = [...new Set(['自己', '配偶', ...uniqueUsers])];
-                                setUsers(mergedUsers);
-                            }
                         }
                         
                         if (data.prices) {
@@ -452,14 +444,6 @@
                 setTransactions([newTransfer, ...transactions]);
                 syncWithBackend({ action: 'add', record: newTransfer });
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
-            };
-
-            const handleAddUser = (e) => {
-                e.preventDefault();
-                if (newUser.trim() && !users.includes(newUser.trim())) {
-                    setUsers([...users, newUser.trim()]);
-                    setNewUser('');
-                }
             };
 
             const toggleAnalysisCat = (cat) => {
@@ -863,23 +847,27 @@
                             <div className="h-40 relative flex items-end">
                                 {chartType === 'bar' ? (
                                     <div className="w-full h-full flex items-end gap-2 px-2">
-                                        {analysisData.trendData.map((d, i) => (
-                                            <div key={i} className="flex-1 flex flex-col justify-end items-center gap-2 group h-full">
-                                                <div className="w-full flex flex-col justify-end h-full">
-                                                    {selectedAnalysisCats.length === 0 ? (
-                                                        <div className="w-full bg-blue-400 relative transition-all group-hover:bg-blue-500 rounded-t-sm" style={{ height: `${(d.total / maxVal) * 100}%` }}>
-                                                            <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">${d.total}</div>
-                                                        </div>
-                                                    ) : (
-                                                        selectedAnalysisCats.map((cat, idx) => {
-                                                            const val = d.categories[cat] || 0;
-                                                            return <div key={cat} style={{ height: `${(val / maxVal) * 100}%`, backgroundColor: getColor(idx) }} className="w-full transition-all" title={`${cat}: ${val}`} />
-                                                        })
-                                                    )}
+                                        {analysisData.trendData.map((d, i) => {
+                                            const max = Math.max(...analysisData.trendData.map(t => t.value), 1);
+                                            const height = `${(d.value / max) * 100}%`;
+                                            return (
+                                                <div key={i} className="flex-1 flex flex-col items-center gap-2 group h-full">
+                                                    <div className="w-full flex flex-col justify-end h-full">
+                                                        {selectedAnalysisCats.length === 0 ? (
+                                                            <div className="w-full bg-blue-400 relative transition-all group-hover:bg-blue-500 rounded-t-sm" style={{ height: `${(d.total / maxVal) * 100}%` }}>
+                                                                <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">${d.total}</div>
+                                                            </div>
+                                                        ) : (
+                                                            selectedAnalysisCats.map((cat, idx) => {
+                                                                const val = d.categories[cat] || 0;
+                                                                return <div key={cat} style={{ height: `${(val / maxVal) * 100}%`, backgroundColor: getColor(idx) }} className="w-full transition-all" title={`${cat}: ${val}`} />
+                                                            })
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs text-gray-500">{d.month}</span>
                                                 </div>
-                                                <span className="text-xs text-gray-500">{d.month}</span>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 ) : (
                                     <div className="w-full h-full relative">
@@ -932,28 +920,6 @@
                 );
             };
 
-            const renderSettingsView = () => (
-                <div className="p-4 space-y-6">
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">成員管理</h3>
-                        <div className="space-y-4">
-                            <ul className="divide-y divide-gray-100">
-                                {users.map(u => (
-                                    <li key={u} className="py-2 flex justify-between items-center">
-                                        <span className="text-gray-700">{u}</span>
-                                        {u === currentUser && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">目前選擇</span>}
-                                    </li>
-                                ))}
-                            </ul>
-                            <form onSubmit={handleAddUser} className="flex gap-2">
-                                <input type="text" value={newUser} onChange={e => setNewUser(e.target.value)} className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="新增家庭成員" />
-                                <button type="submit" className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg transition-colors">新增</button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            );
-
             return (
                 <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
                     <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
@@ -964,8 +930,7 @@
                             {[
                                 { id: 'record', icon: 'book-open', label: '記帳' },
                                 { id: 'wallet', icon: 'credit-card', label: '錢包與資產' },
-                                { id: 'analysis', icon: 'pie-chart', label: '分析' },
-                                { id: 'settings', icon: 'settings', label: '設定' }
+                                { id: 'analysis', icon: 'pie-chart', label: '分析' }
                             ].map(tab => (
                                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center justify-start gap-3 px-4 py-3 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
                                     <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
@@ -980,8 +945,7 @@
                             {[
                                 { id: 'record', icon: 'book-open', label: '記帳' },
                                 { id: 'wallet', icon: 'credit-card', label: '錢包' },
-                                { id: 'analysis', icon: 'pie-chart', label: '分析' },
-                                { id: 'settings', icon: 'settings', label: '設定' }
+                                { id: 'analysis', icon: 'pie-chart', label: '分析' }
                             ].map(tab => (
                                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900'}`}>
                                     <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
@@ -1009,7 +973,6 @@
                                 {activeTab === 'record' && renderRecordView()}
                                 {activeTab === 'wallet' && renderWalletView()}
                                 {activeTab === 'analysis' && renderAnalysisView()}
-                                {activeTab === 'settings' && renderSettingsView()}
                             </div>
                         </main>
                     </div>
