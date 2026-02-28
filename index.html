@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家庭記帳本</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 React 與 ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 載入 Babel 以便在瀏覽器中轉譯 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 載入 Lucide Icons (使用 Feather Icons 作為替代，因 Lucide 無官方純瀏覽器 CDN) -->
+    <script src="https://unpkg.com/feather-icons"></script>
+    <style>
+        /* 隱藏未載入完成的內容 */
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        #root { min-height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+
+        // 圖示元件 (使用 Feather Icons 封裝以貼近原本的 Lucide 體驗)
+        // 修正：使用 dangerouslySetInnerHTML 來防止 React 和 Feather Icons 對 DOM 的操作衝突
+        const Icon = ({ name, size = 24, className = "" }) => {
+            const svgString = feather.icons[name] ? feather.icons[name].toSvg({ width: size, height: size, class: className }) : '';
+            return <span dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
+        };
+
+        // Web App URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
+
+        function App() {
+            // 基礎狀態
+            const [isLoading, setIsLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('record');
+            const [users, setUsers] = useState(['自己', '配偶']);
+            const [currentUser, setCurrentUser] = useState('自己');
+            const [wallets] = useState(['現金', '刷卡', '先用後付']);
+            
+            // 資料狀態
+            const [transactions, setTransactions] = useState([]);
+            const [stockPrices, setStockPrices] = useState({});
+            const [usdRate, setUsdRate] = useState(32.5);
+
+            // 記帳表單狀態
+            const [recordForm, setRecordForm] = useState({
+                type: 'expense',
+                date: new Date().toISOString().split('T')[0],
+                category: '飲食',
+                customCategory: '',
+                itemName: '',
+                amount: '',
+                wallet: '現金',
+                note: '',
+                market: 'TW',
+                symbol: '',
+                shares: ''
+            });
+
+            const expenseCategories = ['飲食', '購物', '固定支出', '旅行', '工作', '其他'];
+            const incomeCategories = ['薪資', '獎金', '補助', '自由工作', '其他'];
+
+            const [editingRecordId, setEditingRecordId] = useState(null);
+            const [recordMonth, setRecordMonth] = useState(new Date().toISOString().slice(0, 7));
+
+            // 錢包餘額調整狀態
+            const [adjustingWallet, setAdjustingWallet] = useState(null);
+            const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
+
+            // 轉帳表單狀態
+            const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
+
+            // 新增使用者狀態
+            const [newUser, setNewUser] = useState('');
+
+            // 分析視圖狀態
+            const [analysisMonth, setAnalysisMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [chartType, setChartType] = useState('line');
+
+            const formatDateString = (dateVal) => {
+                if (!dateVal) return '';
+                if (typeof dateVal === 'string' && dateVal.includes('T')) {
+                    return dateVal.split('T')[0];
+                }
+                return String(dateVal).substring(0, 10);
+            };
+
+            const syncWithBackend = (payload) => {
+                fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(payload)
+                }).catch(err => console.error("Sync error:", err));
+            };
+
+            const fetchCloudData = () => {
+                setIsLoading(true);
+                fetch(SCRIPT_URL)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.transactions) {
+                            const parsedRecords = data.transactions.map(t => ({
+                                ...t,
+                                amount: parseFloat(t.amount) || 0,
+                                shares: t.shares ? (parseFloat(t.shares) || 0) : '',
+                                date: formatDateString(t.date)
+                            }));
+                            
+                            parsedRecords.sort((a, b) => {
+                                if (a.date !== b.date) return b.date.localeCompare(a.date);
+                                return String(b.id).localeCompare(String(a.id));
+                            });
+                            setTransactions(parsedRecords);
+                            
+                            const uniqueUsers = [...new Set(parsedRecords.map(r => r.user).filter(Boolean))];
+                            if (uniqueUsers.length > 0) {
+                                const mergedUsers = [...new Set(['自己', '配偶', ...uniqueUsers])];
+                                setUsers(mergedUsers);
+                            }
+                        }
+                        
+                        if (data.prices) {
+                            const newPrices = {};
+                            Object.keys(data.prices).forEach(key => {
+                                let val = data.prices[key];
+                                if (typeof val === 'string') {
+                                    val = val.replace(/,/g, '');
+                                    const match = val.match(/-?\d+\.?\d*/);
+                                    val = match ? parseFloat(match[0]) : NaN;
+                                } else {
+                                    val = parseFloat(val);
+                                }
+                                
+                                if (!isNaN(val) && val > 0) {
+                                    newPrices[String(key).trim().toUpperCase()] = val;
+                                }
+                            });
+
+                            if (newPrices['TWD=X']) {
+                                setUsdRate(newPrices['TWD=X']);
+                            } else if (newPrices['USDTWD']) {
+                                setUsdRate(newPrices['USDTWD']);
+                            }
+                            
+                            setStockPrices(newPrices);
+                        }
+                    })
+                    .catch(err => console.error("Failed to load cloud data", err))
+                    .finally(() => setIsLoading(false));
+            };
+
+            useEffect(() => {
+                fetchCloudData();
+            }, []);
+
+            const displayTransactions = useMemo(() => {
+                return transactions.filter(t => t.date.startsWith(recordMonth));
+            }, [transactions, recordMonth]);
+
+            const walletBalances = useMemo(() => {
+                const balances = wallets.reduce((acc, wallet) => {
+                    acc[wallet] = 0;
+                    return acc;
+                }, {});
+
+                transactions.forEach(t => {
+                    if (t.type === 'expense' && balances[t.wallet] !== undefined) {
+                        balances[t.wallet] -= t.amount;
+                    } else if (t.type === 'income' && balances[t.wallet] !== undefined) {
+                        balances[t.wallet] += t.amount;
+                    } else if (t.type === 'transfer') {
+                        if (balances[t.fromWallet] !== undefined) balances[t.fromWallet] -= t.amount;
+                        if (balances[t.toWallet] !== undefined) balances[t.toWallet] += t.amount;
+                    } else if (t.type === 'investment' && balances['現金'] !== undefined) {
+                        balances['現金'] -= t.amount; 
+                    }
+                });
+
+                return balances;
+            }, [transactions, wallets]);
+
+            const { portfolio, totalStockValue } = useMemo(() => {
+                const holdings = {};
+                transactions.forEach(t => {
+                    if (t.type === 'investment') {
+                        const market = t.market || 'TW';
+                        const symbol = String(t.symbol || '').trim().toUpperCase();
+                        const key = market === 'TW' ? `${symbol}.TW` : symbol;
+                        if (!holdings[key]) holdings[key] = { symbol, market, shares: 0, cost: 0 };
+                        holdings[key].shares += (parseFloat(t.shares) || 0);
+                        holdings[key].cost += (parseFloat(t.amount) || 0);
+                    }
+                });
+                
+                const activePortfolio = Object.values(holdings).filter(h => h.shares > 0);
+                
+                let totalValue = 0;
+                activePortfolio.forEach(h => {
+                    const symbolUpper = String(h.symbol || '').trim().toUpperCase();
+                    const cleanSymbol = symbolUpper.replace(/\.TW$/, '').replace(/^TPE:/, '');
+                    
+                    const possibleKeys = [
+                        cleanSymbol,
+                        `${cleanSymbol}.TW`,
+                        `TPE:${cleanSymbol}`,
+                        `${cleanSymbol}:TPE`
+                    ];
+                    
+                    let price = null;
+                    for (const k of possibleKeys) {
+                        if (stockPrices[k] !== undefined && !isNaN(stockPrices[k])) {
+                            price = stockPrices[k];
+                            break;
+                        }
+                    }
+
+                    if (price === null) {
+                        const fuzzyKey = Object.keys(stockPrices).find(k => k.includes(cleanSymbol));
+                        if (fuzzyKey) {
+                            price = stockPrices[fuzzyKey];
+                        }
+                    }
+                    
+                    let currentVal = 0;
+                    if (price) {
+                        currentVal = h.market === 'TW' ? price * h.shares : price * h.shares * usdRate;
+                    } else {
+                        currentVal = h.cost; 
+                    }
+                    
+                    h.resolvedPrice = price;
+                    h.currentValue = currentVal;
+                    
+                    totalValue += currentVal;
+                });
+
+                return { portfolio: activePortfolio, totalStockValue: totalValue };
+            }, [transactions, stockPrices, usdRate]);
+
+            const analysisData = useMemo(() => {
+                const monthTransactions = transactions.filter(t => t.date.startsWith(analysisMonth) && t.type !== 'transfer');
+                
+                let totalExpense = 0;
+                let totalIncome = 0;
+                const categoryTotals = {};
+
+                monthTransactions.forEach(t => {
+                    if (t.type === 'expense') {
+                        totalExpense += t.amount;
+                        categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+                    } else if (t.type === 'income') {
+                        totalIncome += t.amount;
+                    }
+                });
+
+                const categoriesList = Object.keys(categoryTotals).map(cat => ({
+                    name: cat,
+                    value: categoryTotals[cat],
+                    percentage: totalExpense ? ((categoryTotals[cat] / totalExpense) * 100).toFixed(1) : 0
+                })).sort((a, b) => b.value - a.value);
+
+                const trendData = [];
+                const today = new Date();
+                for (let i = 5; i >= 0; i--) {
+                    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+                    const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const monthLabel = `${d.getMonth() + 1}月`;
+                    
+                    const monthTotal = transactions
+                        .filter(t => t.date.startsWith(monthStr) && t.type === 'expense')
+                        .reduce((sum, t) => sum + t.amount, 0);
+                        
+                    trendData.push({ month: monthLabel, value: monthTotal });
+                }
+
+                return { totalExpense, totalIncome, categoriesList, trendData };
+            }, [transactions, analysisMonth]);
+
+            const handleAddRecord = (e) => {
+                e.preventDefault();
+                if (!recordForm.amount) return;
+
+                let recordData = {
+                    id: editingRecordId || Date.now().toString(),
+                    date: recordForm.date,
+                    type: recordForm.type,
+                    amount: parseFloat(recordForm.amount),
+                    note: recordForm.note,
+                    user: currentUser
+                };
+
+                if (recordForm.type === 'investment') {
+                    if (!recordForm.symbol || !recordForm.shares) return;
+                    recordData = {
+                        ...recordData,
+                        market: recordForm.market,
+                        symbol: recordForm.symbol.toUpperCase(),
+                        shares: parseFloat(recordForm.shares),
+                        wallet: '現金', 
+                        category: '投資',
+                        itemName: `${recordForm.market === 'TW' ? '台股' : '美股'} ${recordForm.symbol.toUpperCase()}`
+                    };
+                } else {
+                    if (!recordForm.itemName) return;
+                    recordData = {
+                        ...recordData,
+                        category: recordForm.category === '其他' && recordForm.customCategory ? recordForm.customCategory : recordForm.category,
+                        itemName: recordForm.itemName,
+                        wallet: recordForm.wallet,
+                        market: '',
+                        symbol: '',
+                        shares: ''
+                    };
+                }
+
+                const isEdit = !!editingRecordId;
+
+                if (isEdit) {
+                    setTransactions(transactions.map(t => t.id.toString() === editingRecordId.toString() ? recordData : t));
+                    setEditingRecordId(null);
+                } else {
+                    setTransactions([recordData, ...transactions]);
+                }
+
+                syncWithBackend({ action: isEdit ? 'edit' : 'add', record: recordData });
+
+                if (recordForm.type === 'investment' && !isEdit) {
+                    syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
+                }
+                
+                setRecordForm(prev => ({
+                    ...prev,
+                    itemName: '',
+                    amount: '',
+                    note: '',
+                    customCategory: '',
+                    symbol: '',
+                    shares: ''
+                }));
+            };
+
+            const handleEditRecord = (record) => {
+                const isCustom = record.type !== 'investment' && !expenseCategories.includes(record.category) && !incomeCategories.includes(record.category);
+                setRecordForm({
+                    type: record.type,
+                    date: record.date,
+                    category: record.type === 'investment' ? '投資' : (isCustom ? '其他' : record.category),
+                    customCategory: isCustom ? record.category : '',
+                    itemName: record.itemName || '',
+                    amount: record.amount.toString(),
+                    wallet: record.wallet || '現金',
+                    note: record.note || '',
+                    market: record.market || 'TW',
+                    symbol: record.symbol || '',
+                    shares: record.shares ? record.shares.toString() : ''
+                });
+                setEditingRecordId(record.id);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            const handleCancelEdit = () => {
+                setEditingRecordId(null);
+                setRecordForm(prev => ({ ...prev, amount: '', itemName: '', note: '', symbol: '', shares: '' }));
+            };
+
+            const handleDeleteRecord = (id) => {
+                setTransactions(transactions.filter(t => t.id.toString() !== id.toString()));
+                syncWithBackend({ action: 'delete', id: id });
+            };
+
+            const changeRecordMonth = (offset) => {
+                const [year, month] = recordMonth.split('-').map(Number);
+                const newDate = new Date(year, month - 1 + offset, 1);
+                const y = newDate.getFullYear();
+                const m = String(newDate.getMonth() + 1).padStart(2, '0');
+                setRecordMonth(`${y}-${m}`);
+            };
+
+            const handleAdjustBalanceConfirm = (wallet, currentBalance) => {
+                const newBalance = parseFloat(adjustWalletAmount);
+                if (isNaN(newBalance) || newBalance === currentBalance) {
+                    setAdjustingWallet(null);
+                    return;
+                }
+                const diff = newBalance - currentBalance;
+                const type = diff > 0 ? 'income' : 'expense';
+                const adjustmentRecord = {
+                    id: Date.now().toString(),
+                    date: new Date().toISOString().split('T')[0],
+                    type: type,
+                    amount: Math.abs(diff),
+                    category: '其他',
+                    itemName: '餘額調整',
+                    wallet: wallet,
+                    note: `由 ${currentBalance} 調整至 ${newBalance}`,
+                    user: currentUser
+                };
+                
+                setTransactions([adjustmentRecord, ...transactions]);
+                syncWithBackend({ action: 'add', record: adjustmentRecord });
+                setAdjustingWallet(null);
+            };
+
+            const handleTransfer = (e) => {
+                e.preventDefault();
+                if (!transferForm.amount || transferForm.fromWallet === transferForm.toWallet) return;
+                const newTransfer = {
+                    id: Date.now().toString(),
+                    date: new Date().toISOString().split('T')[0],
+                    type: 'transfer',
+                    amount: parseFloat(transferForm.amount),
+                    fromWallet: transferForm.fromWallet,
+                    toWallet: transferForm.toWallet,
+                    note: transferForm.note,
+                    user: currentUser
+                };
+                
+                setTransactions([newTransfer, ...transactions]);
+                syncWithBackend({ action: 'add', record: newTransfer });
+                setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
+            };
+
+            const handleAddUser = (e) => {
+                e.preventDefault();
+                if (newUser.trim() && !users.includes(newUser.trim())) {
+                    setUsers([...users, newUser.trim()]);
+                    setNewUser('');
+                }
+            };
+
+            if (isLoading) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
+                        <Icon name="refresh-cw" className="animate-spin text-blue-500" size={32} />
+                        <p className="font-medium text-lg text-gray-700">正在與雲端資料庫同步...</p>
+                        <p className="text-sm">這可能需要幾秒鐘的時間</p>
+                    </div>
+                );
+            }
+
+            const renderRecordView = () => (
+                <div className="p-4 space-y-4">
+                    <div className="flex gap-2 mb-4">
+                        <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>支出</button>
+                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>收入</button>
+                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>投資</button>
+                    </div>
+
+                    <form onSubmit={handleAddRecord} className="space-y-4 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
+                        {editingRecordId && (
+                            <div className="bg-blue-50 text-blue-800 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 mb-2">
+                                <Icon name="edit-2" size={16} /> 正在編輯雲端紀錄
+                            </div>
+                        )}
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
+                            <input type="date" value={recordForm.date} onChange={e => setRecordForm({...recordForm, date: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                        </div>
+
+                        {recordForm.type === 'investment' ? (
+                            <React.Fragment>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
+                                        <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3">
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
+                                        <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">購買股數</label>
+                                        <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">扣款金額 (TWD)</label>
+                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder="本次投資花費的新台幣總額" min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">扣款帳戶</label>
+                                    <div className="p-3 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
+                                        <span>現金</span>
+                                        <span className="text-sm font-medium">餘額: ${walletBalances['現金'].toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            </React.Fragment>
+                        ) : (
+                            <React.Fragment>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">類別</label>
+                                    <select value={recordForm.category} onChange={e => setRecordForm({...recordForm, category: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        {(recordForm.type === 'expense' ? expenseCategories : incomeCategories).map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {recordForm.category === '其他' && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">自訂名稱</label>
+                                        <input type="text" value={recordForm.customCategory} onChange={e => setRecordForm({...recordForm, customCategory: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">項目名稱</label>
+                                    <input type="text" value={recordForm.itemName} onChange={e => setRecordForm({...recordForm, itemName: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="例如：午餐、水電費" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">金額</label>
+                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="1" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">錢包 (支付/入帳方式)</label>
+                                    <div className="flex gap-2">
+                                        {wallets.map(w => (
+                                            <button key={w} type="button" onClick={() => setRecordForm({...recordForm, wallet: w})} className={`flex-1 py-1.5 border rounded-lg transition-colors flex flex-col items-center justify-center ${recordForm.wallet === w ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-gray-600'}`}>
+                                                <span className="text-sm font-medium">{w}</span>
+                                                <span className="text-[10px] mt-0.5 opacity-70">${walletBalances[w].toLocaleString()}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </React.Fragment>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">備註 (選填)</label>
+                            <input type="text" value={recordForm.note} onChange={e => setRecordForm({...recordForm, note: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                        </div>
+
+                        {editingRecordId ? (
+                            <div className="flex gap-2 pt-2">
+                                <button type="button" onClick={handleCancelEdit} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-medium transition-colors">取消</button>
+                                <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"><Icon name="check" size={18} /> 儲存修改</button>
+                            </div>
+                        ) : (
+                            <button type="submit" className={`w-full py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mt-2 text-white ${recordForm.type === 'investment' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                <Icon name="plus" size={18} /> 新增紀錄
+                            </button>
+                        )}
+                    </form>
+
+                    <div className="mt-8">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-gray-800">記帳紀錄</h3>
+                            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
+                                <button onClick={() => changeRecordMonth(-1)} className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="上個月"><Icon name="chevron-left" size={18} /></button>
+                                <span className="text-sm font-medium text-gray-700 w-24 text-center">{recordMonth.replace('-', '年')}月</span>
+                                <button onClick={() => changeRecordMonth(1)} className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="下個月"><Icon name="chevron-right" size={18} /></button>
+                            </div>
+                        </div>
+                        <div className="space-y-3">
+                            {displayTransactions.map(record => (
+                                <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
+                                                {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
+                                            </span>
+                                            <span className="text-xs md:text-sm text-gray-500 whitespace-nowrap">{record.date}</span>
+                                            <span className="text-xs md:text-sm text-gray-500 hidden md:inline truncate">• {record.user}</span>
+                                        </div>
+                                        <div className="font-medium text-gray-900 truncate text-sm md:text-base">
+                                            {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                                            {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
+                                        </div>
+                                        <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
+                                            {record.type === 'investment' && <span>股數: {record.shares}</span>}
+                                            {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
+                                            {record.note && <span>• 備註: {record.note}</span>}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-2 shrink-0">
+                                        <span className={`font-bold text-sm md:text-base ${record.type === 'expense' ? 'text-rose-600' : record.type === 'income' ? 'text-emerald-600' : record.type === 'investment' ? 'text-indigo-600' : 'text-gray-700'}`}>
+                                            {record.type === 'expense' || record.type === 'investment' ? '-' : record.type === 'income' ? '+' : ''}${record.amount.toLocaleString()}
+                                        </span>
+                                        <div className="flex gap-1 md:gap-2">
+                                            {record.type !== 'transfer' && (
+                                                <button onClick={() => handleEditRecord(record)} className="p-1 md:p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯">
+                                                    <Icon name="edit-2" size={16} />
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleDeleteRecord(record.id)} className="p-1 md:p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除">
+                                                <Icon name="trash-2" size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            {displayTransactions.length === 0 && <p className="text-center text-gray-400 py-8 text-sm bg-white rounded-xl border border-gray-100 border-dashed">本月暫無紀錄</p>}
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderWalletView = () => {
+                const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
+                const grandTotalAssets = totalWalletBalance + totalStockValue;
+
+                return (
+                    <div className="p-4 space-y-6">
+                        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md text-white">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h3 className="text-blue-100 text-sm font-medium mb-1">總資產 (TWD)</h3>
+                                    <div className="text-4xl font-bold">${Math.round(grandTotalAssets).toLocaleString()}</div>
+                                </div>
+                                <button onClick={fetchCloudData} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors flex items-center gap-2 text-sm" title="取得最新股價">
+                                    <Icon name="refresh-cw" size={16} /> <span className="hidden md:inline">重整資料</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <h3 className="text-lg font-semibold text-gray-800">所有錢包</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {wallets.map(w => (
+                                    <div key={w} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
+                                        <div className="flex justify-between items-center w-full">
+                                            <span className="font-medium text-gray-700">{w}</span>
+                                            {adjustingWallet !== w && (
+                                                <button onClick={() => { setAdjustingWallet(w); setAdjustWalletAmount(walletBalances[w].toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="調整餘額">
+                                                    <Icon name="edit-2" size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {adjustingWallet === w ? (
+                                            <div className="flex items-center gap-1 mt-1">
+                                                <input type="number" value={adjustWalletAmount} onChange={e => setAdjustWalletAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus />
+                                                <button onClick={() => handleAdjustBalanceConfirm(w, walletBalances[w])} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
+                                                <button onClick={() => setAdjustingWallet(null)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"><Icon name="x" size={16}/></button>
+                                            </div>
+                                        ) : (
+                                            <span className={`text-xl font-bold ${walletBalances[w] < 0 ? 'text-rose-500' : 'text-gray-900'}`}>
+                                                ${walletBalances[w].toLocaleString()}
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
+                                    <div className="flex justify-between items-center w-full">
+                                        <span className="font-medium text-gray-700">股票資產</span>
+                                    </div>
+                                    <span className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                        ${Math.round(totalStockValue).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {portfolio.length > 0 && (
+                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                                    <div className="flex items-center gap-2"><Icon name="briefcase" size={18} /> 股票持有明細</div>
+                                </h3>
+                                <div className="space-y-3">
+                                    <p className="text-xs text-gray-500 border-b border-gray-100 pb-2 mb-2">資料與股價由 Google 試算表即時連動 (美金匯率: {usdRate.toFixed(2)})</p>
+                                    {portfolio.map(h => {
+                                        const price = h.resolvedPrice;
+                                        const currentValue = h.currentValue;
+                                        
+                                        return (
+                                            <div key={h.symbol} className="flex justify-between items-center text-sm p-2 hover:bg-gray-50 rounded-lg transition-colors">
+                                                <div>
+                                                    <span className="font-bold text-gray-800">{h.symbol}</span>
+                                                    <span className="text-gray-500 text-xs ml-2">{h.shares} 股</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="font-medium text-gray-900">${Math.round(currentValue).toLocaleString()}</div>
+                                                    {!price && <div className="text-[10px] text-rose-500">無法獲取股價，以成本顯示</div>}
+                                                    {price && <div className="text-[10px] text-emerald-600">即時股價: {price}</div>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                                <Icon name="repeat" size={18} /> 錢包轉帳
+                            </h3>
+                            <form onSubmit={handleTransfer} className="space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <select value={transferForm.fromWallet} onChange={e => setTransferForm({...transferForm, fromWallet: e.target.value})} className="flex-1 p-2 border rounded-lg">
+                                        {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                    </select>
+                                    <span className="text-gray-400">至</span>
+                                    <select value={transferForm.toWallet} onChange={e => setTransferForm({...transferForm, toWallet: e.target.value})} className="flex-1 p-2 border rounded-lg">
+                                        {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <input type="number" value={transferForm.amount} onChange={e => setTransferForm({...transferForm, amount: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="轉帳金額" min="1" required />
+                                </div>
+                                <div>
+                                    <input type="text" value={transferForm.note} onChange={e => setTransferForm({...transferForm, note: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="備註 (例如：繳卡費)" />
+                                </div>
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition-colors">確認轉帳</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderAnalysisView = () => (
+                <div className="p-4 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-800">月度分析</h3>
+                        <input type="month" value={analysisMonth} onChange={e => setAnalysisMonth(e.target.value)} className="p-2 border rounded-lg text-sm outline-none" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                            <p className="text-emerald-800 text-sm font-medium mb-1">總收入</p>
+                            <p className="text-xl font-bold text-emerald-600">${analysisData.totalIncome.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
+                            <p className="text-rose-800 text-sm font-medium mb-1">總支出</p>
+                            <p className="text-xl font-bold text-rose-600">${analysisData.totalExpense.toLocaleString()}</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                        <h4 className="text-sm font-medium text-gray-700 mb-4">支出類別比例</h4>
+                        <div className="space-y-3">
+                            {analysisData.categoriesList.length > 0 ? analysisData.categoriesList.map((cat, idx) => (
+                                <div key={idx} className="space-y-1">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">{cat.name}</span>
+                                        <span className="font-medium">${cat.value.toLocaleString()} ({cat.percentage}%)</span>
+                                    </div>
+                                    <div className="w-full bg-gray-100 rounded-full h-2">
+                                        <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${cat.percentage}%` }} />
+                                    </div>
+                                </div>
+                            )) : <p className="text-sm text-gray-400 text-center py-4">無支出紀錄</p>}
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                        <div className="flex items-center justify-between mb-6">
+                            <h4 className="text-sm font-medium text-gray-700">近六個月支出趨勢</h4>
+                            <div className="flex gap-2">
+                                <button onClick={() => setChartType('line')} className={`p-1.5 rounded ${chartType === 'line' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="trending-up" size={16} /></button>
+                                <button onClick={() => setChartType('bar')} className={`p-1.5 rounded ${chartType === 'bar' ? 'bg-blue-100 text-blue-600' : 'text-gray-400'}`}><Icon name="bar-chart-2" size={16} /></button>
+                            </div>
+                        </div>
+                        
+                        <div className="h-40 relative flex items-end">
+                            {chartType === 'bar' ? (
+                                <div className="w-full h-full flex items-end gap-2 px-2">
+                                    {analysisData.trendData.map((d, i) => {
+                                        const max = Math.max(...analysisData.trendData.map(t => t.value), 1);
+                                        const height = `${(d.value / max) * 100}%`;
+                                        return (
+                                            <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
+                                                <div className="w-full bg-blue-400 rounded-t-sm relative transition-all group-hover:bg-blue-500" style={{ height: d.value === 0 ? '1px' : height }}>
+                                                    <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-xs bg-gray-800 text-white px-2 py-1 rounded whitespace-nowrap z-10">
+                                                        ${d.value}
+                                                    </div>
+                                                </div>
+                                                <span className="text-xs text-gray-500">{d.month}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="w-full h-full relative">
+                                    <svg className="w-full h-[calc(100%-24px)] overflow-visible" preserveAspectRatio="none">
+                                        {(() => {
+                                            const max = Math.max(...analysisData.trendData.map(t => t.value), 1);
+                                            const dataLen = analysisData.trendData.length;
+                                            const points = analysisData.trendData.map((d, i) => {
+                                                const x = (i / (dataLen - 1)) * 100;
+                                                const y = 100 - ((d.value / max) * 100);
+                                                return `${x}%,${y}%`;
+                                            }).join(' ');
+                                            
+                                            return (
+                                                <React.Fragment>
+                                                    <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={points} />
+                                                    {analysisData.trendData.map((d, i) => (
+                                                        <circle key={i} cx={`${(i / (dataLen - 1)) * 100}%`} cy={`${100 - ((d.value / max) * 100)}%`} r="4" fill="#ffffff" stroke="#3b82f6" strokeWidth="2" />
+                                                    ))}
+                                                </React.Fragment>
+                                            );
+                                        })()}
+                                    </svg>
+                                    <div className="absolute bottom-0 w-full flex justify-between px-1">
+                                        {analysisData.trendData.map((d, i) => (
+                                            <span key={i} className="text-xs text-gray-500 transform -translate-x-1/2" style={{ left: `${(i / (analysisData.trendData.length - 1)) * 100}%`, position: i === 0 || i === analysisData.trendData.length - 1 ? 'relative' : 'absolute', transform: i===0 ? 'none' : (i === analysisData.trendData.length - 1 ? 'translateX(0)' : 'translateX(-50%)') }}>
+                                                {d.month}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const renderSettingsView = () => (
+                <div className="p-4 space-y-6">
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">成員管理</h3>
+                        <div className="space-y-4">
+                            <ul className="divide-y divide-gray-100">
+                                {users.map(u => (
+                                    <li key={u} className="py-2 flex justify-between items-center">
+                                        <span className="text-gray-700">{u}</span>
+                                        {u === currentUser && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">目前選擇</span>}
+                                    </li>
+                                ))}
+                            </ul>
+                            <form onSubmit={handleAddUser} className="flex gap-2">
+                                <input type="text" value={newUser} onChange={e => setNewUser(e.target.value)} className="flex-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="新增家庭成員" />
+                                <button type="submit" className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg transition-colors">新增</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
+                    <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
+                        <div className="px-6 mb-8">
+                            <h1 className="font-bold text-xl text-gray-800 tracking-tight">家庭記帳本</h1>
+                        </div>
+                        <div className="flex flex-col gap-2 px-4">
+                            {[
+                                { id: 'record', icon: 'book-open', label: '記帳' },
+                                { id: 'wallet', icon: 'credit-card', label: '錢包與資產' },
+                                { id: 'analysis', icon: 'pie-chart', label: '分析' },
+                                { id: 'settings', icon: 'settings', label: '設定' }
+                            ].map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center justify-start gap-3 px-4 py-3 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
+                                    <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
+                                    <span className="text-sm font-medium">{tab.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </nav>
+
+                    <nav className="md:hidden fixed bottom-0 w-full bg-white border-t z-20">
+                        <div className="flex justify-around p-2">
+                            {[
+                                { id: 'record', icon: 'book-open', label: '記帳' },
+                                { id: 'wallet', icon: 'credit-card', label: '錢包' },
+                                { id: 'analysis', icon: 'pie-chart', label: '分析' },
+                                { id: 'settings', icon: 'settings', label: '設定' }
+                            ].map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900'}`}>
+                                    <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
+                                    <span className="text-[10px] font-medium">{tab.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </nav>
+
+                    <div className="flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-0">
+                        <header className="bg-white border-b sticky top-0 z-10">
+                            <div className="px-4 py-3 flex justify-between items-center max-w-4xl mx-auto w-full">
+                                <h1 className="font-bold text-xl text-gray-800 tracking-tight md:hidden">家庭記帳本</h1>
+                                <div className="flex items-center gap-2 ml-auto">
+                                    <span className="text-sm text-gray-500 hidden md:inline">目前填報者：</span>
+                                    <select value={currentUser} onChange={e => setCurrentUser(e.target.value)} className="text-sm bg-gray-100 border-none rounded-full px-4 py-1.5 focus:ring-0 cursor-pointer outline-none">
+                                        {users.map(u => <option key={u} value={u}>{u}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </header>
+
+                        <main className="max-w-4xl mx-auto p-4 md:p-6 w-full">
+                            <div className="animate-in fade-in duration-300">
+                                {activeTab === 'record' && renderRecordView()}
+                                {activeTab === 'wallet' && renderWalletView()}
+                                {activeTab === 'analysis' && renderAnalysisView()}
+                                {activeTab === 'settings' && renderSettingsView()}
+                            </div>
+                        </main>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
