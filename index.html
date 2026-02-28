@@ -29,25 +29,25 @@
     </style>
 </head>
 <body>
-    <div id="root"></div>
+        // Web App URL
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
 
-    <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
-
-        // 圖表共用色碼
-        const CAT_COLORS = [
-            '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', 
-            '#06b6d4', '#3b82f6', '#8b5cf6', '#d946ef', '#ec4899', 
-            '#64748b', '#a3e635', '#14b8a6', '#6366f1'
-        ];
-        const getColor = (idx) => CAT_COLORS[idx % CAT_COLORS.length];
-
-        const Icon = ({ name, size = 24, className = "" }) => {
-            const svgString = feather.icons[name] ? feather.icons[name].toSvg({ width: size, height: size, class: className }) : '';
-            return <span dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
+        // 取得本地時區的 YYYY-MM-DD
+        const getLocalDateString = () => {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         };
 
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
+        // 取得本地時區的 YYYY-MM
+        const getLocalMonthString = () => {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            return `${year}-${month}`;
+        };
 
         function App() {
             const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +62,7 @@
 
             const [recordForm, setRecordForm] = useState({
                 type: 'expense',
-                date: new Date().toISOString().split('T')[0],
+                date: getLocalDateString(),
                 category: '飲食',
                 customCategory: '',
                 itemName: '',
@@ -79,14 +79,14 @@
             const incomeCategories = ['薪資', '獎金', '補助', '自由工作', '其他'];
 
             const [editingRecordId, setEditingRecordId] = useState(null);
-            const [recordMonth, setRecordMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [recordMonth, setRecordMonth] = useState(getLocalMonthString());
 
             const [adjustingWallet, setAdjustingWallet] = useState(null);
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
 
             const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
 
-            const [analysisMonth, setAnalysisMonth] = useState(new Date().toISOString().slice(0, 7));
+            const [analysisMonth, setAnalysisMonth] = useState(getLocalMonthString());
             const [chartType, setChartType] = useState('line');
             const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
 
