@@ -4,16 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>家庭記帳本</title>
-    <!-- 網頁圖示 (Favicon) -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%233b82f6'/><text x='50%' y='50%' font-family='sans-serif' font-weight='bold' font-size='60' dominant-baseline='central' text-anchor='middle' fill='white'>帳</text></svg>">
-    <!-- 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 載入 React 與 ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- 載入 Babel 以便在瀏覽器中轉譯 JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 載入 Lucide Icons -->
     <script src="https://unpkg.com/feather-icons"></script>
     <style>
         body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
@@ -35,17 +30,9 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
 
-        // ==========================================
-        // 開發者設定區塊
-        // ==========================================
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
-        
-        // 請將透過開發者模式產生的加密字串貼在此處
         const ENCRYPTED_API_KEY = "cSU3Q0pXY0xzVyU3QiUwM3ElNUVvZ2lOdVIlMDV6JTAzT1ZpRVBDYXNYZG4lMDFXJTA1U1hyQw=="; 
 
-        // ==========================================
-        // 簡易加解密邏輯 (XOR + Base64)
-        // ==========================================
         const processXOR = (text, key) => {
             let result = '';
             for (let i = 0; i < text.length; i++) {
@@ -66,11 +53,14 @@
             }
         };
 
-        const callGeminiAPI = async (prompt, systemInstruction = null, isJson = false) => {
-            const apiKey = localStorage.getItem('decryptedApiKey');
-            if (!apiKey) throw new Error("無效的 API 金鑰，請重新登入");
+        const callGeminiAPI = async (apiKey, prompt, systemInstruction = null, isJson = false) => {
+            if (!apiKey) {
+                 const error = new Error("無效的 API 金鑰，請重新登入");
+                 error.needRelogin = true;
+                 throw error;
+            }
             
-            const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+            const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
             const payload = { contents: [{ parts: [{ text: prompt }] }] };
             if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
@@ -138,12 +128,11 @@
         };
 
         function App() {
-            // 系統認證狀態
             const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [systemPassword, setSystemPassword] = useState('');
+            const [activeApiKey, setActiveApiKey] = useState('');
             const [loginError, setLoginError] = useState('');
             
-            // 開發者模式狀態
             const [rawApiKey, setRawApiKey] = useState('');
             const [setupPassword, setSetupPassword] = useState('');
             const [generatedEncryptedKey, setGeneratedEncryptedKey] = useState('');
@@ -160,17 +149,22 @@
             const [stockPrices, setStockPrices] = useState({});
             const [usdRate, setUsdRate] = useState(32.5);
 
+            // 手動記帳表單狀態 (預設摺疊)
+            const [isManualFormOpen, setIsManualFormOpen] = useState(false);
             const [recordForm, setRecordForm] = useState({
                 type: 'expense', date: getLocalDateString(), category: '飲食', customCategory: '',
                 itemName: '', amount: '', wallet: '現金', note: '', market: 'TW', symbol: '', shares: '', isSell: false
             });
+
+            // 內嵌編輯狀態
+            const [editingRecordId, setEditingRecordId] = useState(null);
+            const [inlineEditForm, setInlineEditForm] = useState(null);
 
             const [aiInputText, setAiInputText] = useState('');
             const [isAiParsing, setIsAiParsing] = useState(false);
             const [aiAdvice, setAiAdvice] = useState('');
             const [isAiAdvising, setIsAiAdvising] = useState(false);
 
-            const [editingRecordId, setEditingRecordId] = useState(null);
             const [recordMonth, setRecordMonth] = useState(getLocalMonthString());
             const [adjustingWallet, setAdjustingWallet] = useState(null);
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
@@ -193,12 +187,11 @@
             };
 
             const syncWithBackend = (payload) => {
-                const savedPwd = localStorage.getItem('systemPassword');
                 fetch(SCRIPT_URL, {
                     method: 'POST',
                     mode: 'no-cors',
                     headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify({ ...payload, pwd: savedPwd })
+                    body: JSON.stringify({ ...payload, pwd: systemPassword })
                 }).catch(err => console.error("Sync error:", err));
             };
 
@@ -213,7 +206,12 @@
                         }
                         if (data.transactions) {
                             const parsedRecords = data.transactions.map(t => ({
-                                ...t, amount: parseFloat(t.amount) || 0, shares: t.shares ? (parseFloat(t.shares) || 0) : '', date: formatDateString(t.date)
+                                ...t, 
+                                amount: parseFloat(t.amount) || 0, 
+                                shares: t.shares ? (parseFloat(t.shares) || 0) : '', 
+                                date: formatDateString(t.date),
+                                fromWallet: t.type === 'transfer' ? (t.category || '現金') : t.fromWallet,
+                                toWallet: t.type === 'transfer' ? (t.wallet || '刷卡') : t.toWallet
                             }));
                             parsedRecords.sort((a, b) => {
                                 if (a.date !== b.date) return b.date.localeCompare(a.date);
@@ -253,14 +251,23 @@
                 feather.replace();
             });
 
-            // 初始化驗證登入狀態
             useEffect(() => {
                 if (ENCRYPTED_API_KEY) {
-                    const savedPwd = localStorage.getItem('systemPassword');
-                    const savedKey = localStorage.getItem('decryptedApiKey');
-                    if (savedPwd && savedKey) {
-                        setIsAuthenticated(true);
-                        fetchCloudData(savedPwd);
+                    try {
+                        const savedPwd = localStorage.getItem('systemPassword');
+                        if (savedPwd) {
+                             const decrypted = decryptKey(ENCRYPTED_API_KEY, savedPwd);
+                             if(decrypted.startsWith("AIza")) {
+                                 setSystemPassword(savedPwd);
+                                 setActiveApiKey(decrypted);
+                                 setIsAuthenticated(true);
+                                 fetchCloudData(savedPwd);
+                             } else {
+                                  handleLogout();
+                             }
+                        }
+                    } catch (e) {
+                        handleLogout();
                     }
                 }
             }, []);
@@ -270,10 +277,11 @@
                 setLoginError('');
                 
                 const decrypted = decryptKey(ENCRYPTED_API_KEY, systemPassword);
-                // 檢查解密結果是否為有效的 Gemini API Key (通常以 AIza 開頭)
                 if (decrypted.startsWith("AIza")) {
-                    localStorage.setItem('systemPassword', systemPassword);
-                    localStorage.setItem('decryptedApiKey', decrypted);
+                    try {
+                        localStorage.setItem('systemPassword', systemPassword);
+                    } catch(e) {}
+                    setActiveApiKey(decrypted);
                     setIsAuthenticated(true);
                     fetchCloudData(systemPassword);
                 } else {
@@ -282,10 +290,12 @@
             };
 
             const handleLogout = () => {
-                localStorage.removeItem('systemPassword');
-                localStorage.removeItem('decryptedApiKey');
+                try {
+                    localStorage.removeItem('systemPassword');
+                } catch(e) {}
                 setIsAuthenticated(false);
                 setSystemPassword('');
+                setActiveApiKey('');
                 setTransactions([]);
             };
 
@@ -411,30 +421,94 @@
                 if (!aiInputText.trim()) return;
                 setIsAiParsing(true);
                 try {
-                    const systemInstruction = `您是一個專業的記帳助理。請將使用者的自然語言輸入解析為 JSON 格式。今天日期是: ${getLocalDateString()}。若無說明日期，預設為今天。必須輸出 JSON: {"type": "expense" 或 "income", "category": "飲食"|"購物"|"固定支出"|"旅行"|"工作"|"薪資"|"獎金"|"補助"|"自由工作"|"其他", "itemName": "簡短名稱", "amount": 數字, "wallet": "現金"|"刷卡"|"先用後付", "date": "YYYY-MM-DD"} 不要包含 markdown。`;
-                    const responseText = await callGeminiAPI(aiInputText, systemInstruction, true);
-                    const parsedData = JSON.parse(responseText.trim());
-                    
-                    const newRecord = {
-                        id: Date.now().toString(),
-                        date: parsedData.date || getLocalDateString(),
-                        type: parsedData.type || 'expense',
-                        amount: parseFloat(parsedData.amount) || 0,
-                        category: parsedData.category || '飲食',
-                        itemName: parsedData.itemName || '未命名',
-                        wallet: parsedData.wallet || '現金',
-                        note: 'AI 自動記帳',
-                        user: currentUser,
-                        market: '',
-                        symbol: '',
-                        shares: ''
-                    };
+                    const systemInstruction = `您是一個專業的記帳助理。請將使用者的自然語言輸入解析為 JSON 陣列 (Array of objects)，以支援多筆同時記帳。
+今天日期是: ${getLocalDateString()}。若使用者沒有特別說明日期，預設為今天。
+請判斷使用者的每一筆輸入，並輸出為對應格式的 JSON 物件：
 
-                    setTransactions(prev => [newRecord, ...prev]);
-                    syncWithBackend({ action: 'add', record: newRecord });
+1. 支出或收入: 
+   {"type": "expense" 或 "income", "category": "飲食"|"購物"|"固定支出"|"旅行"|"工作"|"薪資"|"獎金"|"補助"|"自由工作"|"其他", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "現金"|"刷卡"|"先用後付", "date": "YYYY-MM-DD"}
+2. 投資 (買賣股票等): 
+   {"type": "investment", "symbol": "股票代號(如QQQ, 2330)", "shares": 數字(買入為正數，賣出為負數), "amount": 數字(交易總金額，絕對值正數), "market": "TW" 或 "US", "date": "YYYY-MM-DD"}
+3. 轉帳 (例如繳卡費、不同帳戶互轉): 
+   {"type": "transfer", "amount": 數字(正數), "fromWallet": "現金"|"刷卡"|"先用後付", "toWallet": "現金"|"刷卡"|"先用後付", "note": "簡短備註", "date": "YYYY-MM-DD"}
+
+判斷提示：
+- 若使用者說「繳卡費」：這通常代表從「現金」轉帳到「刷卡」，請歸類為 transfer，fromWallet填現金，toWallet填刷卡。
+- 若使用者說買賣股票且未明確指定美股或台股，可從代號判斷 (如英文字母為US，純數字為TW)。
+- 請一定要回傳 JSON 陣列，例如: [{"type":"expense", ...}, {"type":"investment", ...}]。不要包含任何 markdown 標籤或額外文字。`;
+
+                    const responseText = await callGeminiAPI(activeApiKey, aiInputText, systemInstruction, true);
+                    let parsedData = JSON.parse(responseText.trim());
+                    
+                    if (!Array.isArray(parsedData)) {
+                        parsedData = [parsedData];
+                    }
+                    
+                    const newRecords = [];
+                    const timestamp = Date.now();
+                    
+                    parsedData.forEach((data, index) => {
+                        let baseRecord = {
+                            id: (timestamp + index).toString(),
+                            date: data.date || getLocalDateString(),
+                            type: data.type || 'expense',
+                            amount: parseFloat(data.amount) || 0,
+                            user: currentUser,
+                        };
+                        
+                        if (data.type === 'investment') {
+                            const isSell = parseFloat(data.shares) < 0;
+                            const market = data.market || (data.symbol && /^[A-Za-z]+$/.test(data.symbol) ? 'US' : 'TW');
+                            const symbol = (data.symbol || '').toUpperCase();
+                            newRecords.push({
+                                ...baseRecord,
+                                category: '投資',
+                                itemName: `${market === 'TW' ? '台股' : '美股'} ${symbol} (${isSell ? '賣出' : '買入'})`,
+                                wallet: '現金', 
+                                market: market,
+                                symbol: symbol,
+                                shares: parseFloat(data.shares) || 0,
+                                note: 'AI 自動記帳'
+                            });
+                        } else if (data.type === 'transfer') {
+                            newRecords.push({
+                                ...baseRecord,
+                                fromWallet: data.fromWallet || '現金',
+                                toWallet: data.toWallet || '刷卡',
+                                category: data.fromWallet || '現金', 
+                                wallet: data.toWallet || '刷卡', 
+                                itemName: '轉帳',
+                                note: data.note || 'AI 自動記帳'
+                            });
+                        } else {
+                            newRecords.push({
+                                ...baseRecord,
+                                category: data.category || '其他',
+                                itemName: data.itemName || '未命名',
+                                wallet: data.wallet || '現金',
+                                note: 'AI 自動記帳',
+                                market: '',
+                                symbol: '',
+                                shares: ''
+                            });
+                        }
+                    });
+
+                    setTransactions(prev => [...newRecords, ...prev]);
+                    newRecords.forEach(record => {
+                        syncWithBackend({ action: 'add', record: record });
+                        if (record.type === 'investment' && record.shares > 0) {
+                            syncWithBackend({ action: 'addSymbol', symbol: record.symbol, market: record.market });
+                        }
+                    });
+                    
                     setAiInputText('');
                 } catch (error) {
-                    alert(error.message || "AI 解析失敗，請自行手動輸入或換個說法試試！");
+                    if(error.needRelogin) {
+                        handleLogout();
+                    }
+                    alert(error.message || "AI 解析失敗，請檢查格式或換個說法試試！");
+                    console.error(error);
                 } finally {
                     setIsAiParsing(false);
                 }
@@ -443,11 +517,27 @@
             const handleGenerateAdvice = async () => {
                 setIsAiAdvising(true);
                 try {
-                    const systemInstruction = `您是貼心的家庭理財顧問。請根據提供的本月財務分析資料，給予大約3-4句話的溫暖鼓勵與理財建議。使用繁體中文。可以使用粗體（**粗體**）強調。`;
-                    const prompt = `本月資料分析 (${analysisMonth}): 總收入: ${analysisData.totalIncome}, 總支出: ${analysisData.totalExpense}, 支出分類排行: ${JSON.stringify(analysisData.categoriesList.slice(0,3))}。請給建議。`;
-                    const advice = await callGeminiAPI(prompt, systemInstruction);
+                    const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
+                    const topHoldings = portfolio.map(h => h.symbol).slice(0, 3).join(', ');
+
+                    const systemInstruction = `您是一位專業、客觀的財務顧問。請以簡潔、專業的口吻，針對用戶本月的收支狀況以及目前的資產配置進行精要點評，並給出具體的理財建議。請控制在 4 到 5 句話以內。使用繁體中文，可適度使用粗體（**粗體**）強調數據或重點。請絕對不要使用任何表情符號。`;
+                    
+                    const prompt = `本月收支狀況 (${analysisMonth})：
+總收入：${analysisData.totalIncome}
+總支出：${analysisData.totalExpense}
+主要支出分類：${analysisData.categoriesList.slice(0,3).map(c => `${c.name}(${c.value})`).join(', ')}
+
+目前資產配置狀況：
+現金與帳戶總計：${totalWalletBalance}
+股票投資總值：${Math.round(totalStockValue)}
+主要持股：${topHoldings || '無'}`;
+
+                    const advice = await callGeminiAPI(activeApiKey, prompt, systemInstruction);
                     setAiAdvice(advice);
                 } catch (error) {
+                    if(error.needRelogin) {
+                        handleLogout();
+                    }
                     setAiAdvice(error.message || "目前無法取得理財建議，請稍後再試。");
                 } finally {
                     setIsAiAdvising(false);
@@ -458,7 +548,7 @@
                 e.preventDefault();
                 if (!recordForm.amount) return;
 
-                let recordData = { id: editingRecordId || Date.now().toString(), date: recordForm.date, type: recordForm.type, amount: parseFloat(recordForm.amount), note: recordForm.note, user: currentUser };
+                let recordData = { id: Date.now().toString(), date: recordForm.date, type: recordForm.type, amount: parseFloat(recordForm.amount), note: recordForm.note, user: currentUser };
 
                 if (recordForm.type === 'investment') {
                     if (!recordForm.symbol || !recordForm.shares) return;
@@ -469,39 +559,95 @@
                     recordData = { ...recordData, category: recordForm.category === '其他' && recordForm.customCategory ? recordForm.customCategory : recordForm.category, itemName: recordForm.itemName, wallet: recordForm.wallet, market: '', symbol: '', shares: '' };
                 }
 
-                const isEdit = !!editingRecordId;
-                if (isEdit) {
-                    setTransactions(transactions.map(t => t.id.toString() === editingRecordId.toString() ? recordData : t));
-                    setEditingRecordId(null);
-                } else {
-                    setTransactions([recordData, ...transactions]);
-                }
-
-                syncWithBackend({ action: isEdit ? 'edit' : 'add', record: recordData });
-                if (recordForm.type === 'investment' && !isEdit && !recordForm.isSell) {
+                setTransactions([recordData, ...transactions]);
+                syncWithBackend({ action: 'add', record: recordData });
+                
+                if (recordForm.type === 'investment' && !recordForm.isSell) {
                     syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
                 }
                 setRecordForm(prev => ({ ...prev, itemName: '', amount: '', note: '', customCategory: '', symbol: '', shares: '', isSell: false }));
+                setIsManualFormOpen(false);
             };
 
+            // 設定內嵌編輯狀態
             const handleEditRecord = (record) => {
                 const isCustom = record.type !== 'investment' && !expenseCategories.includes(record.category) && !incomeCategories.includes(record.category);
                 const sharesVal = parseFloat(record.shares);
                 const isSell = record.type === 'investment' && sharesVal < 0;
                 
-                setRecordForm({
-                    type: record.type, date: record.date, category: record.type === 'investment' ? '投資' : (isCustom ? '其他' : record.category),
-                    customCategory: isCustom ? record.category : '', itemName: record.itemName || '', amount: record.amount.toString(),
-                    wallet: record.wallet || '現金', note: record.note || '', market: record.market || 'TW', symbol: record.symbol || '',
-                    shares: record.shares ? Math.abs(sharesVal).toString() : '', isSell: isSell
+                setInlineEditForm({
+                    ...record,
+                    isCustom: isCustom,
+                    customCategory: isCustom ? record.category : '',
+                    isSell: isSell,
+                    shares: record.shares ? Math.abs(sharesVal).toString() : '',
+                    market: record.market || 'TW',
+                    symbol: record.symbol || ''
                 });
                 setEditingRecordId(record.id);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
             const handleCancelEdit = () => {
                 setEditingRecordId(null);
-                setRecordForm(prev => ({ ...prev, amount: '', itemName: '', note: '', symbol: '', shares: '', isSell: false }));
+                setInlineEditForm(null);
+            };
+
+            // 儲存內嵌編輯結果
+            const handleSaveInlineEdit = () => {
+                if (!inlineEditForm.amount) return;
+
+                let updatedRecord = {
+                    id: inlineEditForm.id,
+                    date: inlineEditForm.date,
+                    type: inlineEditForm.type,
+                    amount: parseFloat(inlineEditForm.amount),
+                    note: inlineEditForm.note,
+                    user: currentUser
+                };
+
+                if (inlineEditForm.type === 'investment') {
+                    if (!inlineEditForm.symbol || !inlineEditForm.shares) return;
+                    const absoluteShares = Math.abs(parseFloat(inlineEditForm.shares));
+                    updatedRecord = {
+                        ...updatedRecord,
+                        market: inlineEditForm.market,
+                        symbol: inlineEditForm.symbol.toUpperCase(),
+                        shares: inlineEditForm.isSell ? -absoluteShares : absoluteShares,
+                        wallet: '現金',
+                        category: '投資',
+                        itemName: `${inlineEditForm.market === 'TW' ? '台股' : '美股'} ${inlineEditForm.symbol.toUpperCase()} (${inlineEditForm.isSell ? '賣出' : '買入'})`
+                    };
+                } else if (inlineEditForm.type === 'transfer') {
+                    updatedRecord = {
+                        ...updatedRecord,
+                        fromWallet: inlineEditForm.fromWallet,
+                        toWallet: inlineEditForm.toWallet,
+                        category: inlineEditForm.fromWallet,
+                        wallet: inlineEditForm.toWallet,
+                        itemName: '轉帳'
+                    };
+                } else {
+                    if (!inlineEditForm.itemName) return;
+                    updatedRecord = {
+                        ...updatedRecord,
+                        category: inlineEditForm.category === '其他' && inlineEditForm.customCategory ? inlineEditForm.customCategory : inlineEditForm.category,
+                        itemName: inlineEditForm.itemName,
+                        wallet: inlineEditForm.wallet,
+                        market: '',
+                        symbol: '',
+                        shares: ''
+                    };
+                }
+
+                setTransactions(transactions.map(t => t.id === updatedRecord.id ? updatedRecord : t));
+                syncWithBackend({ action: 'edit', record: updatedRecord });
+                
+                if (updatedRecord.type === 'investment' && parseFloat(updatedRecord.shares) > 0) {
+                    syncWithBackend({ action: 'addSymbol', symbol: updatedRecord.symbol, market: updatedRecord.market });
+                }
+
+                setEditingRecordId(null);
+                setInlineEditForm(null);
             };
 
             const handleDeleteRecord = (id) => {
@@ -530,7 +676,18 @@
             const handleTransfer = (e) => {
                 e.preventDefault();
                 if (!transferForm.amount || transferForm.fromWallet === transferForm.toWallet) return;
-                const newTransfer = { id: Date.now().toString(), date: new Date().toISOString().split('T')[0], type: 'transfer', amount: parseFloat(transferForm.amount), fromWallet: transferForm.fromWallet, toWallet: transferForm.toWallet, note: transferForm.note, user: currentUser };
+                const newTransfer = { 
+                    id: Date.now().toString(), 
+                    date: new Date().toISOString().split('T')[0], 
+                    type: 'transfer', 
+                    amount: parseFloat(transferForm.amount), 
+                    fromWallet: transferForm.fromWallet, 
+                    toWallet: transferForm.toWallet,
+                    category: transferForm.fromWallet,
+                    wallet: transferForm.toWallet,
+                    note: transferForm.note, 
+                    user: currentUser 
+                };
                 setTransactions([newTransfer, ...transactions]);
                 syncWithBackend({ action: 'add', record: newTransfer });
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
@@ -541,7 +698,6 @@
                 else setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
             };
 
-            // 渲染：開發者設定模式 (未設定加密金鑰時)
             if (!ENCRYPTED_API_KEY) {
                 return (
                     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -572,7 +728,6 @@
                 );
             }
 
-            // 渲染：登入畫面 (未驗證通過時)
             if (!isAuthenticated) {
                 return (
                     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
@@ -593,190 +748,342 @@
                 );
             }
 
-            // ==========================================
-            // 系統主畫面
-            // ==========================================
-            const renderRecordView = () => (
-                <div className="p-4 space-y-4">
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row gap-2 items-center">
-                        <input 
-                            type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
-                            placeholder="✨ AI 記帳：晚餐吃了 150 元付現金..." className="flex-1 w-full p-2.5 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing}
-                        />
-                        <button onClick={handleAiParse} disabled={isAiParsing} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap">
-                            {isAiParsing ? <Icon name="loader" size={16} className="animate-spin" /> : <Icon name="zap" size={16} />}
-                            {isAiParsing ? '記錄中...' : '直接記帳'}
-                        </button>
+            // --- 內嵌編輯區塊元件 ---
+            const renderInlineEditContent = () => (
+                <div className="space-y-3 w-full animate-in fade-in">
+                    <div className="flex flex-wrap gap-2">
+                        <select value={inlineEditForm.type} onChange={e => setInlineEditForm({...inlineEditForm, type: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                            <option value="expense">支出</option>
+                            <option value="income">收入</option>
+                            <option value="investment">投資</option>
+                            <option value="transfer">轉帳</option>
+                        </select>
+                        <input type="date" value={inlineEditForm.date} onChange={e => setInlineEditForm({...inlineEditForm, date: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
                     </div>
 
-                    <div className="flex gap-2 mb-4">
-                        <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>支出</button>
-                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>收入</button>
-                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border text-gray-600'}`}>投資</button>
+                    {inlineEditForm.type === 'investment' && (
+                        <div className="flex flex-wrap gap-2">
+                            <select value={inlineEditForm.market} onChange={e => setInlineEditForm({...inlineEditForm, market: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                <option value="TW">台股</option>
+                                <option value="US">美股</option>
+                            </select>
+                            <input type="text" value={inlineEditForm.symbol} onChange={e => setInlineEditForm({...inlineEditForm, symbol: e.target.value.toUpperCase()})} placeholder="代號" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-24 uppercase outline-none focus:ring-2 focus:ring-blue-400" />
+                            <select value={inlineEditForm.isSell} onChange={e => setInlineEditForm({...inlineEditForm, isSell: e.target.value === 'true'})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                <option value={false}>買入</option>
+                                <option value={true}>賣出</option>
+                            </select>
+                            <input type="number" step="0.00001" min="0" value={inlineEditForm.shares} onChange={e => setInlineEditForm({...inlineEditForm, shares: e.target.value})} placeholder="股數" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-24 outline-none focus:ring-2 focus:ring-blue-400" />
+                        </div>
+                    )}
+
+                    {(inlineEditForm.type === 'expense' || inlineEditForm.type === 'income') && (
+                        <div className="flex flex-wrap gap-2">
+                            <select value={inlineEditForm.category} onChange={e => setInlineEditForm({...inlineEditForm, category: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                {(inlineEditForm.type === 'expense' ? expenseCategories : incomeCategories).map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            {inlineEditForm.category === '其他' && (
+                                <input type="text" value={inlineEditForm.customCategory} onChange={e => setInlineEditForm({...inlineEditForm, customCategory: e.target.value})} placeholder="自訂分類" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-24 outline-none focus:ring-2 focus:ring-blue-400" />
+                            )}
+                            <input type="text" value={inlineEditForm.itemName} onChange={e => setInlineEditForm({...inlineEditForm, itemName: e.target.value})} placeholder="項目名稱" className="flex-1 min-w-[120px] border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
+                        </div>
+                    )}
+
+                    {inlineEditForm.type === 'transfer' && (
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <select value={inlineEditForm.fromWallet} onChange={e => setInlineEditForm({...inlineEditForm, fromWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                            </select>
+                            <Icon name="arrow-right" size={14} className="text-gray-400" />
+                            <select value={inlineEditForm.toWallet} onChange={e => setInlineEditForm({...inlineEditForm, toWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                        <input type="number" value={inlineEditForm.amount} onChange={e => setInlineEditForm({...inlineEditForm, amount: e.target.value})} placeholder="金額" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-28 outline-none focus:ring-2 focus:ring-blue-400" />
+                        {inlineEditForm.type !== 'transfer' && inlineEditForm.type !== 'investment' && (
+                            <select value={inlineEditForm.wallet} onChange={e => setInlineEditForm({...inlineEditForm, wallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                            </select>
+                        )}
+                        <input type="text" value={inlineEditForm.note} onChange={e => setInlineEditForm({...inlineEditForm, note: e.target.value})} placeholder="備註(選填)" className="flex-1 min-w-[100px] border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
                     </div>
 
-                    <form onSubmit={handleAddRecord} className="space-y-4 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
-                        {editingRecordId && (
-                            <div className="bg-blue-50 text-blue-800 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 mb-2">
-                                <Icon name="edit-2" size={16} /> 正在編輯雲端紀錄
-                            </div>
-                        )}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
-                            <input type="date" value={recordForm.date} onChange={e => setRecordForm({...recordForm, date: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-                        </div>
-
-                        {recordForm.type === 'investment' ? (
-                            <React.Fragment>
-                                <div className="flex gap-2 bg-gray-100 p-1 rounded-lg">
-                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: false, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${!recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-600'}`}>買入庫存</button>
-                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: true, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-600'}`}>賣出庫存</button>
-                                </div>
-                                {!recordForm.isSell && (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
-                                        <div className="flex gap-2">
-                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
-                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex gap-3">
-                                    {recordForm.isSell ? (
-                                        <div className="flex-1">
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">選擇賣出</label>
-                                            <select value={recordForm.symbol} onChange={e => { const selected = portfolio.find(p => p.symbol === e.target.value); setRecordForm({...recordForm, symbol: e.target.value, market: selected ? selected.market : 'TW'}); }} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required>
-                                                <option value="">請選擇庫存</option>
-                                                {portfolio.map(p => <option key={p.symbol} value={p.symbol}>{p.symbol} (可賣: {p.shares} 股)</option>)}
-                                                {recordForm.symbol && !portfolio.find(p => p.symbol === recordForm.symbol) && <option value={recordForm.symbol}>{recordForm.symbol} (已售完)</option>}
-                                            </select>
-                                        </div>
-                                    ) : (
-                                        <div className="flex-1">
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
-                                            <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
-                                        </div>
-                                    )}
-                                    <div className="flex-1">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出股數' : '購買股數'}</label>
-                                        <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出總金額 (TWD)' : '扣款總金額 (TWD)'}</label>
-                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder={`本次交易的總新台幣`} min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
-                                    <div className="p-3 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
-                                        <span>現金</span><span className="text-sm font-medium">餘額: ${walletBalances['現金'].toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            </React.Fragment>
-                        ) : (
-                            <React.Fragment>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">類別</label>
-                                    <select value={recordForm.category} onChange={e => setRecordForm({...recordForm, category: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                                        {(recordForm.type === 'expense' ? expenseCategories : incomeCategories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                    </select>
-                                </div>
-                                {recordForm.category === '其他' && (
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">自訂名稱</label>
-                                        <input type="text" value={recordForm.customCategory} onChange={e => setRecordForm({...recordForm, customCategory: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-                                    </div>
-                                )}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">項目名稱</label>
-                                    <input type="text" value={recordForm.itemName} onChange={e => setRecordForm({...recordForm, itemName: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="例如：午餐、水電費" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">金額</label>
-                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="1" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">錢包 (支付/入帳方式)</label>
-                                    <div className="flex gap-2">
-                                        {wallets.map(w => (
-                                            <button key={w} type="button" onClick={() => setRecordForm({...recordForm, wallet: w})} className={`flex-1 py-1.5 border rounded-lg transition-colors flex flex-col items-center justify-center ${recordForm.wallet === w ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-gray-600'}`}>
-                                                <span className="text-sm font-medium">{w}</span><span className="text-[10px] mt-0.5 opacity-70">${walletBalances[w].toLocaleString()}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </React.Fragment>
-                        )}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">備註 (選填)</label>
-                            <input type="text" value={recordForm.note} onChange={e => setRecordForm({...recordForm, note: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                        </div>
-                        {editingRecordId ? (
-                            <div className="flex gap-2 pt-2">
-                                <button type="button" onClick={handleCancelEdit} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-medium transition-colors">取消</button>
-                                <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"><Icon name="check" size={18} /> 儲存修改</button>
-                            </div>
-                        ) : (
-                            <button type="submit" className={`w-full py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mt-2 text-white ${recordForm.type === 'investment' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                                <Icon name="plus" size={18} /> 新增紀錄
-                            </button>
-                        )}
-                    </form>
-
-                    <div className="mt-8">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-gray-800">記帳紀錄</h3>
-                            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
-                                <button onClick={() => changeRecordMonth(-1)} className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="上個月"><Icon name="chevron-left" size={18} /></button>
-                                <span className="text-sm font-medium text-gray-700 w-24 text-center">{recordMonth.replace('-', '年')}月</span>
-                                <button onClick={() => changeRecordMonth(1)} className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="下個月"><Icon name="chevron-right" size={18} /></button>
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            {displayTransactions.map(record => {
-                                const isInvestSell = record.type === 'investment' && parseFloat(record.shares) < 0;
-                                const isExpenseLike = record.type === 'expense' || (record.type === 'investment' && !isInvestSell);
-                                const isIncomeLike = record.type === 'income' || isInvestSell;
-
-                                return (
-                                    <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
-                                                    {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
-                                                </span>
-                                                <span className="text-xs md:text-sm text-gray-500 whitespace-nowrap">{record.date}</span>
-                                                <span className="text-xs md:text-sm text-gray-500 hidden md:inline truncate">• {record.user}</span>
-                                            </div>
-                                            <div className="font-medium text-gray-900 truncate text-sm md:text-base">
-                                                {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
-                                                {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
-                                            </div>
-                                            <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
-                                                {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
-                                                {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
-                                                {record.note && <span>• 備註: {record.note}</span>}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2 shrink-0">
-                                            <span className={`font-bold text-sm md:text-base ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
-                                                {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
-                                            </span>
-                                            <div className="flex gap-1 md:gap-2">
-                                                {record.type !== 'transfer' && (
-                                                    <button onClick={() => handleEditRecord(record)} className="p-1 md:p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯"><Icon name="edit-2" size={16} /></button>
-                                                )}
-                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 md:p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除"><Icon name="trash-2" size={16} /></button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            {displayTransactions.length === 0 && <p className="text-center text-gray-400 py-8 text-sm bg-white rounded-xl border border-gray-100 border-dashed">本月暫無紀錄</p>}
-                        </div>
+                    <div className="flex gap-2 pt-2 mt-1">
+                        <button onClick={handleCancelEdit} className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors">取消</button>
+                        <button onClick={handleSaveInlineEdit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"><Icon name="check" size={16} /> 儲存修改</button>
                     </div>
                 </div>
             );
+
+            const renderRecordView = () => {
+                const todayStr = getLocalDateString();
+                const currentLocalMonth = getLocalMonthString();
+                const isViewingCurrentMonth = recordMonth === currentLocalMonth;
+                
+                const todayRecords = displayTransactions.filter(t => t.date === todayStr);
+                const monthRecords = isViewingCurrentMonth 
+                    ? displayTransactions.filter(t => t.date !== todayStr) 
+                    : displayTransactions;
+
+                const getRecordDisplayInfo = (record) => {
+                    const isInvestSell = record.type === 'investment' && parseFloat(record.shares) < 0;
+                    const isExpenseLike = record.type === 'expense' || (record.type === 'investment' && !isInvestSell);
+                    const isIncomeLike = record.type === 'income' || isInvestSell;
+                    return { isInvestSell, isExpenseLike, isIncomeLike };
+                };
+
+                return (
+                    <div className="p-4 space-y-6">
+                        {/* 頂部 AI 記帳區 */}
+                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row gap-2 items-center">
+                            <input 
+                                type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
+                                placeholder="輸入對話自動記帳，例如：買1股QQQ 18000，午餐200現金" className="flex-1 w-full p-2.5 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing}
+                            />
+                            <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50">
+                                {isAiParsing ? <Icon name="loader" size={16} className="animate-spin" /> : <Icon name="zap" size={16} />}
+                                {isAiParsing ? '處理中...' : '直接記帳'}
+                            </button>
+                        </div>
+
+                        {/* 摺疊式手動記帳區 */}
+                        <div>
+                            <button
+                                type="button"
+                                onClick={() => setIsManualFormOpen(!isManualFormOpen)}
+                                className="w-full flex items-center justify-between bg-white p-3.5 rounded-xl shadow-sm border border-gray-100 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Icon name="edit-3" size={18} className="text-gray-400" /> 手動記帳
+                                </div>
+                                <Icon name={isManualFormOpen ? "chevron-up" : "chevron-down"} size={18} className="text-gray-400" />
+                            </button>
+                            
+                            {isManualFormOpen && (
+                                <div className="mt-3 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
+                                    <div className="flex gap-2 mb-4">
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>支出</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
+                                    </div>
+                                    <form onSubmit={handleAddRecord} className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
+                                            <input type="date" value={recordForm.date} onChange={e => setRecordForm({...recordForm, date: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                                        </div>
+
+                                        {recordForm.type === 'investment' ? (
+                                            <React.Fragment>
+                                                <div className="flex gap-2 bg-gray-50 p-1 rounded-lg">
+                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: false, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${!recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-500'}`}>買入庫存</button>
+                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: true, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-500'}`}>賣出庫存</button>
+                                                </div>
+                                                {!recordForm.isSell && (
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
+                                                        <div className="flex gap-2">
+                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
+                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-3">
+                                                    {recordForm.isSell ? (
+                                                        <div className="flex-1">
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">選擇賣出</label>
+                                                            <select value={recordForm.symbol} onChange={e => { const selected = portfolio.find(p => p.symbol === e.target.value); setRecordForm({...recordForm, symbol: e.target.value, market: selected ? selected.market : 'TW'}); }} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required>
+                                                                <option value="">請選擇庫存</option>
+                                                                {portfolio.map(p => <option key={p.symbol} value={p.symbol}>{p.symbol} (可賣: {p.shares} 股)</option>)}
+                                                                {recordForm.symbol && !portfolio.find(p => p.symbol === recordForm.symbol) && <option value={recordForm.symbol}>{recordForm.symbol} (已售完)</option>}
+                                                            </select>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex-1">
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
+                                                            <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
+                                                        </div>
+                                                    )}
+                                                    <div className="flex-1">
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出股數' : '購買股數'}</label>
+                                                        <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出總金額 (TWD)' : '扣款總金額 (TWD)'}</label>
+                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder={`本次交易的總新台幣`} min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
+                                                    <div className="p-3 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
+                                                        <span>現金</span><span className="text-sm font-medium">餘額: ${walletBalances['現金'].toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            </React.Fragment>
+                                        ) : (
+                                            <React.Fragment>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">類別</label>
+                                                    <select value={recordForm.category} onChange={e => setRecordForm({...recordForm, category: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                        {(recordForm.type === 'expense' ? expenseCategories : incomeCategories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                                    </select>
+                                                </div>
+                                                {recordForm.category === '其他' && (
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-700 mb-1">自訂名稱</label>
+                                                        <input type="text" value={recordForm.customCategory} onChange={e => setRecordForm({...recordForm, customCategory: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">項目名稱</label>
+                                                    <input type="text" value={recordForm.itemName} onChange={e => setRecordForm({...recordForm, itemName: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="例如：午餐、水電費" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">金額</label>
+                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="1" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">錢包 (支付/入帳方式)</label>
+                                                    <div className="flex gap-2">
+                                                        {wallets.map(w => (
+                                                            <button key={w} type="button" onClick={() => setRecordForm({...recordForm, wallet: w})} className={`flex-1 py-1.5 border rounded-lg transition-colors flex flex-col items-center justify-center ${recordForm.wallet === w ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-gray-600'}`}>
+                                                                <span className="text-sm font-medium">{w}</span><span className="text-[10px] mt-0.5 opacity-70">${walletBalances[w].toLocaleString()}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </React.Fragment>
+                                        )}
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">備註 (選填)</label>
+                                            <input type="text" value={recordForm.note} onChange={e => setRecordForm({...recordForm, note: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                        </div>
+                                        <button type="submit" className={`w-full py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mt-2 text-white ${recordForm.type === 'investment' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                            <Icon name="plus" size={18} /> 新增紀錄
+                                        </button>
+                                    </form>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 月份切換工具列 */}
+                        <div className="flex items-center justify-between mt-8 border-b pb-4">
+                            <h3 className="text-lg font-bold text-gray-800 tracking-wide">歷史紀錄</h3>
+                            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
+                                <button onClick={() => changeRecordMonth(-1)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="上個月"><Icon name="chevron-left" size={16} /></button>
+                                <span className="text-sm font-medium text-gray-700 w-20 text-center">{recordMonth.replace('-', '年')}月</span>
+                                <button onClick={() => changeRecordMonth(1)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="下個月"><Icon name="chevron-right" size={16} /></button>
+                            </div>
+                        </div>
+
+                        {/* 本日記帳區 (僅在檢視當月時顯示) */}
+                        {isViewingCurrentMonth && (
+                            <div className="space-y-3">
+                                <h4 className="text-sm font-semibold text-gray-500 mb-2">本日記帳</h4>
+                                {todayRecords.length > 0 ? todayRecords.map(record => {
+                                    const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
+                                    return editingRecordId === record.id ? (
+                                        <div key={record.id} className="bg-blue-50/40 p-4 rounded-xl shadow-sm border border-blue-200">
+                                            {renderInlineEditContent()}
+                                        </div>
+                                    ) : (
+                                        <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
+                                                        {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
+                                                    </span>
+                                                    <span className="text-xs text-gray-500 hidden sm:inline truncate">• {record.user}</span>
+                                                </div>
+                                                <div className="font-medium text-gray-900 truncate text-sm md:text-base">
+                                                    {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                                                    {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
+                                                </div>
+                                                <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
+                                                    {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
+                                                    {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
+                                                    {record.note && <span>• 備註: {record.note}</span>}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2 shrink-0">
+                                                <span className={`font-bold text-sm md:text-base ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                                    {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
+                                                </span>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => handleEditRecord(record)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯"><Icon name="edit-2" size={14} /></button>
+                                                    <button onClick={() => handleDeleteRecord(record.id)} className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除"><Icon name="trash-2" size={14} /></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }) : <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
+                            </div>
+                        )}
+
+                        {/* 本月記帳區 (緊湊表格風格) */}
+                        <div className="space-y-3 pt-4">
+                            <h4 className="text-sm font-semibold text-gray-500 mb-2">{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</h4>
+                            {monthRecords.length > 0 ? (
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                                    <table className="w-full min-w-[600px] text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-50 text-gray-500 text-xs tracking-wider border-b border-gray-200">
+                                                <th className="py-2.5 px-3 font-medium w-16">日期</th>
+                                                <th className="py-2.5 px-3 font-medium w-20">分類</th>
+                                                <th className="py-2.5 px-3 font-medium">項目名稱</th>
+                                                <th className="py-2.5 px-3 font-medium w-24">帳戶</th>
+                                                <th className="py-2.5 px-3 font-medium text-right w-24">金額</th>
+                                                <th className="py-2.5 px-3 font-medium text-center w-20">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {monthRecords.map(record => {
+                                                const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
+                                                return editingRecordId === record.id ? (
+                                                    <tr key={record.id} className="bg-blue-50/40 border-b border-blue-100">
+                                                        <td colSpan="6" className="p-3">
+                                                            {renderInlineEditContent()}
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    <tr key={record.id} className="hover:bg-gray-50 text-sm transition-colors group">
+                                                        <td className="py-2 px-3 text-gray-500 whitespace-nowrap">{record.date.substring(5)}</td>
+                                                        <td className="py-2 px-3">
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
+                                                                {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-2 px-3">
+                                                            <div className="font-medium text-gray-800 truncate max-w-[180px]">
+                                                                {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                                                            </div>
+                                                            {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <div className="text-[10px] text-gray-400">{record.category}</div>}
+                                                            {record.type === 'investment' && <div className="text-[10px] text-gray-400">{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</div>}
+                                                        </td>
+                                                        <td className="py-2 px-3 text-gray-600 text-xs whitespace-nowrap">
+                                                            {record.type !== 'transfer' ? record.wallet : '-'}
+                                                        </td>
+                                                        <td className={`py-2 px-3 font-semibold text-right whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                                            {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
+                                                        </td>
+                                                        <td className="py-2 px-3 text-center">
+                                                            <div className="flex justify-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => handleEditRecord(record)} className="p-1 text-gray-500 hover:text-blue-600 bg-white hover:bg-blue-50 rounded shadow-sm border border-gray-200 transition-colors" title="編輯"><Icon name="edit-2" size={14} /></button>
+                                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 text-gray-500 hover:text-rose-600 bg-white hover:bg-rose-50 rounded shadow-sm border border-gray-200 transition-colors" title="刪除"><Icon name="trash-2" size={14} /></button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
+                        </div>
+                    </div>
+                );
+            };
 
             const renderWalletView = () => {
                 const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
@@ -790,7 +1097,7 @@
                                     <h3 className="text-blue-100 text-sm font-medium mb-1">總資產 (TWD)</h3>
                                     <div className="text-4xl font-bold">${Math.round(grandTotalAssets).toLocaleString()}</div>
                                 </div>
-                                <button onClick={() => fetchCloudData(localStorage.getItem('systemPassword'))} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors flex items-center gap-2 text-sm" title="取得最新股價">
+                                <button onClick={() => fetchCloudData(systemPassword)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors flex items-center gap-2 text-sm" title="取得最新股價">
                                     <Icon name="refresh-cw" size={16} /> <span className="hidden md:inline">重整資料</span>
                                 </button>
                             </div>
@@ -904,7 +1211,7 @@
                         <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-5 rounded-2xl border border-purple-100 shadow-sm">
                             <div className="flex justify-between items-start mb-2">
                                 <h3 className="text-lg font-semibold text-purple-900 flex items-center gap-2">
-                                    <Icon name="message-circle" size={20} /> ✨ AI 理財顧問
+                                    <Icon name="message-circle" size={20} /> AI 理財顧問
                                 </h3>
                                 <button onClick={handleGenerateAdvice} disabled={isAiAdvising} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-2">
                                     {isAiAdvising ? <Icon name="loader" size={14} className="animate-spin" /> : <Icon name="zap" size={14} />}
@@ -912,7 +1219,7 @@
                                 </button>
                             </div>
                             {aiAdvice && <div className="mt-3 text-sm text-purple-800 leading-relaxed bg-white/60 p-4 rounded-xl markdown-body">{renderMarkdown(aiAdvice)}</div>}
-                            {!aiAdvice && !isAiAdvising && <p className="text-sm text-purple-600/70 mt-1">點擊按鈕，讓 AI 根據您本月的收支狀況給予專屬理財建議。</p>}
+                            {!aiAdvice && !isAiAdvising && <p className="text-sm text-purple-600/70 mt-1">點擊按鈕，讓 AI 根據您本月的收支狀況與資產配置給予專業理財建議。</p>}
                         </div>
 
                         <div className="flex items-center justify-between">
