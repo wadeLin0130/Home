@@ -22,13 +22,15 @@
         input[type="number"] { -moz-appearance: textfield; }
         .markdown-body p { margin-bottom: 0.75em; }
         .markdown-body strong { font-weight: 600; color: #1e293b; }
+        /* 自訂核取方塊樣式 */
+        .custom-checkbox { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+        const { useState, useMemo, useEffect, useRef } = React;
 
         const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
         const ENCRYPTED_API_KEY = "cSU3Q0pXY0xzVyU3QiUwM3ElNUVvZ2lOdVIlMDV6JTAzT1ZpRVBDYXNYZG4lMDFXJTA1U1hyQw=="; 
@@ -137,7 +139,7 @@
             const [setupPassword, setSetupPassword] = useState('');
             const [generatedEncryptedKey, setGeneratedEncryptedKey] = useState('');
 
-            const [isLoading, setIsLoading] = useState(false);
+            const [isLoading, setIsLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('record');
             const users = ['我', '寶寶'];
             const [currentUser, setCurrentUser] = useState('我');
@@ -149,14 +151,12 @@
             const [stockPrices, setStockPrices] = useState({});
             const [usdRate, setUsdRate] = useState(32.5);
 
-            // 手動記帳表單狀態 (預設摺疊)
             const [isManualFormOpen, setIsManualFormOpen] = useState(false);
             const [recordForm, setRecordForm] = useState({
                 type: 'expense', date: getLocalDateString(), category: '飲食', customCategory: '',
                 itemName: '', amount: '', wallet: '現金', note: '', market: 'TW', symbol: '', shares: '', isSell: false
             });
 
-            // 內嵌編輯狀態
             const [editingRecordId, setEditingRecordId] = useState(null);
             const [inlineEditForm, setInlineEditForm] = useState(null);
 
@@ -165,13 +165,25 @@
             const [aiAdvice, setAiAdvice] = useState('');
             const [isAiAdvising, setIsAiAdvising] = useState(false);
 
+            // 語音輸入狀態
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognitionRef = useRef(null);
+            const [isListening, setIsListening] = useState(false);
+
             const [recordMonth, setRecordMonth] = useState(getLocalMonthString());
             const [adjustingWallet, setAdjustingWallet] = useState(null);
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
             const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
             const [analysisMonth, setAnalysisMonth] = useState(getLocalMonthString());
             const [chartType, setChartType] = useState('line');
-            const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
+
+            // 篩選器狀態
+            const [isFilterOpen, setIsFilterOpen] = useState(false);
+            const [filters, setFilters] = useState({
+                expense: true, income: true, investment: true, transfer: true,
+                investBuy: true, investSell: true,
+                expenseCats: {}, incomeCats: {}
+            });
 
             const formatDateString = (dateVal) => {
                 if (!dateVal) return '';
@@ -201,17 +213,11 @@
                 fetch(queryUrl)
                     .then(res => res.json())
                     .then(data => {
-                        if (data.status === 'error') {
-                            throw new Error(data.message);
-                        }
+                        if (data.status === 'error') throw new Error(data.message);
                         if (data.transactions) {
                             const parsedRecords = data.transactions.map(t => ({
-                                ...t, 
-                                amount: parseFloat(t.amount) || 0, 
-                                shares: t.shares ? (parseFloat(t.shares) || 0) : '', 
-                                date: formatDateString(t.date),
-                                fromWallet: t.type === 'transfer' ? (t.category || '現金') : t.fromWallet,
-                                toWallet: t.type === 'transfer' ? (t.wallet || '刷卡') : t.toWallet
+                                ...t, amount: parseFloat(t.amount) || 0, shares: t.shares ? (parseFloat(t.shares) || 0) : '', date: formatDateString(t.date),
+                                fromWallet: t.type === 'transfer' ? (t.category || '現金') : t.fromWallet, toWallet: t.type === 'transfer' ? (t.wallet || '刷卡') : t.toWallet
                             }));
                             parsedRecords.sort((a, b) => {
                                 if (a.date !== b.date) return b.date.localeCompare(a.date);
@@ -227,9 +233,7 @@
                                     val = val.replace(/,/g, '');
                                     const match = val.match(/-?\d+\.?\d*/);
                                     val = match ? parseFloat(match[0]) : NaN;
-                                } else {
-                                    val = parseFloat(val);
-                                }
+                                } else { val = parseFloat(val); }
                                 if (!isNaN(val) && val > 0) newPrices[String(key).trim().toUpperCase()] = val;
                             });
                             if (newPrices['TWD=X']) setUsdRate(newPrices['TWD=X']);
@@ -247,9 +251,38 @@
                     .finally(() => setIsLoading(false));
             };
 
+            useEffect(() => { feather.replace(); });
+
+            // 語音辨識初始化
             useEffect(() => {
-                feather.replace();
-            });
+                if (SpeechRecognition) {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+                    recognition.lang = 'zh-TW';
+                    
+                    recognition.onstart = () => setIsListening(true);
+                    recognition.onend = () => setIsListening(false);
+                    recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        setAiInputText(prev => prev ? prev + ' ' + transcript : transcript);
+                    };
+                    recognition.onerror = (event) => {
+                        console.error("Speech recognition error", event.error);
+                        setIsListening(false);
+                    };
+                    recognitionRef.current = recognition;
+                }
+            }, [SpeechRecognition]);
+
+            const toggleVoiceInput = () => {
+                if (!recognitionRef.current) {
+                    alert("您的瀏覽器不支援語音輸入功能。");
+                    return;
+                }
+                if (isListening) recognitionRef.current.stop();
+                else recognitionRef.current.start();
+            };
 
             useEffect(() => {
                 if (ENCRYPTED_API_KEY) {
@@ -262,52 +295,94 @@
                                  setActiveApiKey(decrypted);
                                  setIsAuthenticated(true);
                                  fetchCloudData(savedPwd);
-                             } else {
-                                  handleLogout();
-                             }
-                        }
-                    } catch (e) {
-                        handleLogout();
-                    }
-                }
+                             } else handleLogout();
+                        } else setIsLoading(false);
+                    } catch (e) { handleLogout(); }
+                } else setIsLoading(false);
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             }, []);
 
             const handleLogin = (e) => {
                 e.preventDefault();
                 setLoginError('');
-                
                 const decrypted = decryptKey(ENCRYPTED_API_KEY, systemPassword);
                 if (decrypted.startsWith("AIza")) {
-                    try {
-                        localStorage.setItem('systemPassword', systemPassword);
-                    } catch(e) {}
+                    try { localStorage.setItem('systemPassword', systemPassword); } catch(e) {}
                     setActiveApiKey(decrypted);
                     setIsAuthenticated(true);
                     fetchCloudData(systemPassword);
-                } else {
-                    setLoginError('密碼錯誤，無法解鎖系統。');
-                }
+                } else setLoginError('密碼錯誤，無法解鎖系統。');
             };
 
             const handleLogout = () => {
-                try {
-                    localStorage.removeItem('systemPassword');
-                } catch(e) {}
+                try { localStorage.removeItem('systemPassword'); } catch(e) {}
                 setIsAuthenticated(false);
                 setSystemPassword('');
                 setActiveApiKey('');
                 setTransactions([]);
+                setIsLoading(false);
             };
 
             const handleGenerateEncryptedKey = () => {
                 if (!rawApiKey || !setupPassword) return;
-                const encrypted = encryptKey(rawApiKey, setupPassword);
-                setGeneratedEncryptedKey(encrypted);
+                setGeneratedEncryptedKey(encryptKey(rawApiKey, setupPassword));
             };
 
-            const displayTransactions = useMemo(() => {
-                return transactions.filter(t => t.date.startsWith(recordMonth));
-            }, [transactions, recordMonth]);
+            // 動態分類名單
+            const allExpenseCats = useMemo(() => Array.from(new Set([...expenseCategories, ...transactions.filter(t=>t.type==='expense').map(t=>t.category)])), [transactions]);
+            const allIncomeCats = useMemo(() => Array.from(new Set([...incomeCategories, ...transactions.filter(t=>t.type==='income').map(t=>t.category)])), [transactions]);
+
+            const displayTransactions = useMemo(() => transactions.filter(t => t.date.startsWith(recordMonth)), [transactions, recordMonth]);
+
+            // 篩選邏輯判斷
+            const isCatChecked = (type, cat) => filters[`${type}Cats`][cat] !== false;
+
+            const handleParentToggle = (type, subCats) => {
+                setFilters(prev => {
+                    const nextVal = !prev[type];
+                    const nextObj = { ...prev, [type]: nextVal };
+                    if (type === 'investment') {
+                        nextObj.investBuy = nextVal;
+                        nextObj.investSell = nextVal;
+                    } else if (type === 'expense' || type === 'income') {
+                        const catKey = `${type}Cats`;
+                        const newCats = {};
+                        subCats.forEach(c => newCats[c] = nextVal);
+                        nextObj[catKey] = newCats;
+                    }
+                    return nextObj;
+                });
+            };
+
+            const handleChildToggle = (parentType, childKey, allChildren) => {
+                setFilters(prev => {
+                    const nextObj = { ...prev };
+                    if (parentType === 'investment') {
+                        nextObj[childKey] = !prev[childKey];
+                        const newBuy = childKey === 'investBuy' ? nextObj.investBuy : prev.investBuy;
+                        const newSell = childKey === 'investSell' ? nextObj.investSell : prev.investSell;
+                        nextObj.investment = newBuy && newSell;
+                    } else {
+                        const catKey = `${parentType}Cats`;
+                        const currentCatState = prev[catKey] || {};
+                        const newCats = { ...currentCatState, [childKey]: currentCatState[childKey] === false }; 
+                        nextObj[catKey] = newCats;
+                        nextObj[parentType] = allChildren.every(c => newCats[c] !== false);
+                    }
+                    return nextObj;
+                });
+            };
+
+            const filterRecord = (t) => {
+                if (t.type === 'transfer') return filters.transfer;
+                if (t.type === 'expense') return filters.expenseCats[t.category] !== false;
+                if (t.type === 'income') return filters.incomeCats[t.category] !== false;
+                if (t.type === 'investment') {
+                    const isSell = parseFloat(t.shares) < 0;
+                    return isSell ? filters.investSell : filters.investBuy;
+                }
+                return true;
+            };
 
             const walletBalances = useMemo(() => {
                 const balances = wallets.reduce((acc, wallet) => { acc[wallet] = 0; return acc; }, {});
@@ -426,23 +501,20 @@
 請判斷使用者的每一筆輸入，並輸出為對應格式的 JSON 物件：
 
 1. 支出或收入: 
-   {"type": "expense" 或 "income", "category": "飲食"|"購物"|"固定支出"|"旅行"|"工作"|"薪資"|"獎金"|"補助"|"自由工作"|"其他", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "現金"|"刷卡"|"先用後付", "date": "YYYY-MM-DD"}
+   {"type": "expense" 或 "income", "category": "飲食"|"購物"|"固定支出"|"旅行"|"工作"|"薪資"|"獎金"|"補助"|"自由工作"|"其他", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "現金"|"刷卡"|"先用後付", "date": "YYYY-MM-DD", "note": "擷取補充說明或備註，若無請留空"}
 2. 投資 (買賣股票等): 
-   {"type": "investment", "symbol": "股票代號(如QQQ, 2330)", "shares": 數字(買入為正數，賣出為負數), "amount": 數字(交易總金額，絕對值正數), "market": "TW" 或 "US", "date": "YYYY-MM-DD"}
-3. 轉帳 (例如繳卡費、不同帳戶互轉): 
-   {"type": "transfer", "amount": 數字(正數), "fromWallet": "現金"|"刷卡"|"先用後付", "toWallet": "現金"|"刷卡"|"先用後付", "note": "簡短備註", "date": "YYYY-MM-DD"}
+   {"type": "investment", "symbol": "股票代號", "shares": 數字(買入為正數，賣出為負數), "amount": 數字(總金額絕對值), "market": "TW" 或 "US", "date": "YYYY-MM-DD", "note": "備註，若無請留空"}
+3. 轉帳 (例如繳卡費、提款): 
+   {"type": "transfer", "amount": 數字(正數), "fromWallet": "現金"|"刷卡"|"先用後付", "toWallet": "現金"|"刷卡"|"先用後付", "note": "備註，若無請留空", "date": "YYYY-MM-DD"}
 
 判斷提示：
-- 若使用者說「繳卡費」：這通常代表從「現金」轉帳到「刷卡」，請歸類為 transfer，fromWallet填現金，toWallet填刷卡。
-- 若使用者說買賣股票且未明確指定美股或台股，可從代號判斷 (如英文字母為US，純數字為TW)。
-- 請一定要回傳 JSON 陣列，例如: [{"type":"expense", ...}, {"type":"investment", ...}]。不要包含任何 markdown 標籤或額外文字。`;
+- 若說「繳卡費」通常歸類為 transfer，fromWallet現金，toWallet刷卡。
+- 若說買賣股票未明確指定，可從代號判斷 (英文字母US，純數字TW)。
+- 請一定要回傳 JSON 陣列。不要包含任何 markdown 標籤或額外文字。`;
 
                     const responseText = await callGeminiAPI(activeApiKey, aiInputText, systemInstruction, true);
                     let parsedData = JSON.parse(responseText.trim());
-                    
-                    if (!Array.isArray(parsedData)) {
-                        parsedData = [parsedData];
-                    }
+                    if (!Array.isArray(parsedData)) parsedData = [parsedData];
                     
                     const newRecords = [];
                     const timestamp = Date.now();
@@ -461,35 +533,18 @@
                             const market = data.market || (data.symbol && /^[A-Za-z]+$/.test(data.symbol) ? 'US' : 'TW');
                             const symbol = (data.symbol || '').toUpperCase();
                             newRecords.push({
-                                ...baseRecord,
-                                category: '投資',
-                                itemName: `${market === 'TW' ? '台股' : '美股'} ${symbol} (${isSell ? '賣出' : '買入'})`,
-                                wallet: '現金', 
-                                market: market,
-                                symbol: symbol,
-                                shares: parseFloat(data.shares) || 0,
-                                note: 'AI 自動記帳'
+                                ...baseRecord, category: '投資', itemName: `${market === 'TW' ? '台股' : '美股'} ${symbol} (${isSell ? '賣出' : '買入'})`,
+                                wallet: '現金', market: market, symbol: symbol, shares: parseFloat(data.shares) || 0, note: data.note || ''
                             });
                         } else if (data.type === 'transfer') {
                             newRecords.push({
-                                ...baseRecord,
-                                fromWallet: data.fromWallet || '現金',
-                                toWallet: data.toWallet || '刷卡',
-                                category: data.fromWallet || '現金', 
-                                wallet: data.toWallet || '刷卡', 
-                                itemName: '轉帳',
-                                note: data.note || 'AI 自動記帳'
+                                ...baseRecord, fromWallet: data.fromWallet || '現金', toWallet: data.toWallet || '刷卡',
+                                category: data.fromWallet || '現金', wallet: data.toWallet || '刷卡', itemName: '轉帳', note: data.note || ''
                             });
                         } else {
                             newRecords.push({
-                                ...baseRecord,
-                                category: data.category || '其他',
-                                itemName: data.itemName || '未命名',
-                                wallet: data.wallet || '現金',
-                                note: 'AI 自動記帳',
-                                market: '',
-                                symbol: '',
-                                shares: ''
+                                ...baseRecord, category: data.category || '其他', itemName: data.itemName || '未命名',
+                                wallet: data.wallet || '現金', note: data.note || '', market: '', symbol: '', shares: ''
                             });
                         }
                     });
@@ -497,16 +552,12 @@
                     setTransactions(prev => [...newRecords, ...prev]);
                     newRecords.forEach(record => {
                         syncWithBackend({ action: 'add', record: record });
-                        if (record.type === 'investment' && record.shares > 0) {
-                            syncWithBackend({ action: 'addSymbol', symbol: record.symbol, market: record.market });
-                        }
+                        if (record.type === 'investment' && record.shares > 0) syncWithBackend({ action: 'addSymbol', symbol: record.symbol, market: record.market });
                     });
                     
                     setAiInputText('');
                 } catch (error) {
-                    if(error.needRelogin) {
-                        handleLogout();
-                    }
+                    if(error.needRelogin) handleLogout();
                     alert(error.message || "AI 解析失敗，請檢查格式或換個說法試試！");
                     console.error(error);
                 } finally {
@@ -519,25 +570,13 @@
                 try {
                     const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
                     const topHoldings = portfolio.map(h => h.symbol).slice(0, 3).join(', ');
-
                     const systemInstruction = `您是一位專業、客觀的財務顧問。請以簡潔、專業的口吻，針對用戶本月的收支狀況以及目前的資產配置進行精要點評，並給出具體的理財建議。請控制在 4 到 5 句話以內。使用繁體中文，可適度使用粗體（**粗體**）強調數據或重點。請絕對不要使用任何表情符號。`;
-                    
-                    const prompt = `本月收支狀況 (${analysisMonth})：
-總收入：${analysisData.totalIncome}
-總支出：${analysisData.totalExpense}
-主要支出分類：${analysisData.categoriesList.slice(0,3).map(c => `${c.name}(${c.value})`).join(', ')}
-
-目前資產配置狀況：
-現金與帳戶總計：${totalWalletBalance}
-股票投資總值：${Math.round(totalStockValue)}
-主要持股：${topHoldings || '無'}`;
+                    const prompt = `本月收支狀況 (${analysisMonth})：\n總收入：${analysisData.totalIncome}\n總支出：${analysisData.totalExpense}\n主要支出分類：${analysisData.categoriesList.slice(0,3).map(c => `${c.name}(${c.value})`).join(', ')}\n\n目前資產配置狀況：\n現金與帳戶總計：${totalWalletBalance}\n股票投資總值：${Math.round(totalStockValue)}\n主要持股：${topHoldings || '無'}`;
 
                     const advice = await callGeminiAPI(activeApiKey, prompt, systemInstruction);
                     setAiAdvice(advice);
                 } catch (error) {
-                    if(error.needRelogin) {
-                        handleLogout();
-                    }
+                    if(error.needRelogin) handleLogout();
                     setAiAdvice(error.message || "目前無法取得理財建議，請稍後再試。");
                 } finally {
                     setIsAiAdvising(false);
@@ -561,28 +600,18 @@
 
                 setTransactions([recordData, ...transactions]);
                 syncWithBackend({ action: 'add', record: recordData });
-                
-                if (recordForm.type === 'investment' && !recordForm.isSell) {
-                    syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
-                }
+                if (recordForm.type === 'investment' && !recordForm.isSell) syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
                 setRecordForm(prev => ({ ...prev, itemName: '', amount: '', note: '', customCategory: '', symbol: '', shares: '', isSell: false }));
                 setIsManualFormOpen(false);
             };
 
-            // 設定內嵌編輯狀態
             const handleEditRecord = (record) => {
                 const isCustom = record.type !== 'investment' && !expenseCategories.includes(record.category) && !incomeCategories.includes(record.category);
                 const sharesVal = parseFloat(record.shares);
                 const isSell = record.type === 'investment' && sharesVal < 0;
-                
                 setInlineEditForm({
-                    ...record,
-                    isCustom: isCustom,
-                    customCategory: isCustom ? record.category : '',
-                    isSell: isSell,
-                    shares: record.shares ? Math.abs(sharesVal).toString() : '',
-                    market: record.market || 'TW',
-                    symbol: record.symbol || ''
+                    ...record, isCustom: isCustom, customCategory: isCustom ? record.category : '', isSell: isSell,
+                    shares: record.shares ? Math.abs(sharesVal).toString() : '', market: record.market || 'TW', symbol: record.symbol || ''
                 });
                 setEditingRecordId(record.id);
             };
@@ -592,60 +621,24 @@
                 setInlineEditForm(null);
             };
 
-            // 儲存內嵌編輯結果
             const handleSaveInlineEdit = () => {
                 if (!inlineEditForm.amount) return;
-
-                let updatedRecord = {
-                    id: inlineEditForm.id,
-                    date: inlineEditForm.date,
-                    type: inlineEditForm.type,
-                    amount: parseFloat(inlineEditForm.amount),
-                    note: inlineEditForm.note,
-                    user: currentUser
-                };
+                let updatedRecord = { id: inlineEditForm.id, date: inlineEditForm.date, type: inlineEditForm.type, amount: parseFloat(inlineEditForm.amount), note: inlineEditForm.note, user: currentUser };
 
                 if (inlineEditForm.type === 'investment') {
                     if (!inlineEditForm.symbol || !inlineEditForm.shares) return;
                     const absoluteShares = Math.abs(parseFloat(inlineEditForm.shares));
-                    updatedRecord = {
-                        ...updatedRecord,
-                        market: inlineEditForm.market,
-                        symbol: inlineEditForm.symbol.toUpperCase(),
-                        shares: inlineEditForm.isSell ? -absoluteShares : absoluteShares,
-                        wallet: '現金',
-                        category: '投資',
-                        itemName: `${inlineEditForm.market === 'TW' ? '台股' : '美股'} ${inlineEditForm.symbol.toUpperCase()} (${inlineEditForm.isSell ? '賣出' : '買入'})`
-                    };
+                    updatedRecord = { ...updatedRecord, market: inlineEditForm.market, symbol: inlineEditForm.symbol.toUpperCase(), shares: inlineEditForm.isSell ? -absoluteShares : absoluteShares, wallet: '現金', category: '投資', itemName: `${inlineEditForm.market === 'TW' ? '台股' : '美股'} ${inlineEditForm.symbol.toUpperCase()} (${inlineEditForm.isSell ? '賣出' : '買入'})` };
                 } else if (inlineEditForm.type === 'transfer') {
-                    updatedRecord = {
-                        ...updatedRecord,
-                        fromWallet: inlineEditForm.fromWallet,
-                        toWallet: inlineEditForm.toWallet,
-                        category: inlineEditForm.fromWallet,
-                        wallet: inlineEditForm.toWallet,
-                        itemName: '轉帳'
-                    };
+                    updatedRecord = { ...updatedRecord, fromWallet: inlineEditForm.fromWallet, toWallet: inlineEditForm.toWallet, category: inlineEditForm.fromWallet, wallet: inlineEditForm.toWallet, itemName: '轉帳' };
                 } else {
                     if (!inlineEditForm.itemName) return;
-                    updatedRecord = {
-                        ...updatedRecord,
-                        category: inlineEditForm.category === '其他' && inlineEditForm.customCategory ? inlineEditForm.customCategory : inlineEditForm.category,
-                        itemName: inlineEditForm.itemName,
-                        wallet: inlineEditForm.wallet,
-                        market: '',
-                        symbol: '',
-                        shares: ''
-                    };
+                    updatedRecord = { ...updatedRecord, category: inlineEditForm.category === '其他' && inlineEditForm.customCategory ? inlineEditForm.customCategory : inlineEditForm.category, itemName: inlineEditForm.itemName, wallet: inlineEditForm.wallet, market: '', symbol: '', shares: '' };
                 }
 
                 setTransactions(transactions.map(t => t.id === updatedRecord.id ? updatedRecord : t));
                 syncWithBackend({ action: 'edit', record: updatedRecord });
-                
-                if (updatedRecord.type === 'investment' && parseFloat(updatedRecord.shares) > 0) {
-                    syncWithBackend({ action: 'addSymbol', symbol: updatedRecord.symbol, market: updatedRecord.market });
-                }
-
+                if (updatedRecord.type === 'investment' && parseFloat(updatedRecord.shares) > 0) syncWithBackend({ action: 'addSymbol', symbol: updatedRecord.symbol, market: updatedRecord.market });
                 setEditingRecordId(null);
                 setInlineEditForm(null);
             };
@@ -676,26 +669,10 @@
             const handleTransfer = (e) => {
                 e.preventDefault();
                 if (!transferForm.amount || transferForm.fromWallet === transferForm.toWallet) return;
-                const newTransfer = { 
-                    id: Date.now().toString(), 
-                    date: new Date().toISOString().split('T')[0], 
-                    type: 'transfer', 
-                    amount: parseFloat(transferForm.amount), 
-                    fromWallet: transferForm.fromWallet, 
-                    toWallet: transferForm.toWallet,
-                    category: transferForm.fromWallet,
-                    wallet: transferForm.toWallet,
-                    note: transferForm.note, 
-                    user: currentUser 
-                };
+                const newTransfer = { id: Date.now().toString(), date: new Date().toISOString().split('T')[0], type: 'transfer', amount: parseFloat(transferForm.amount), fromWallet: transferForm.fromWallet, toWallet: transferForm.toWallet, category: transferForm.fromWallet, wallet: transferForm.toWallet, note: transferForm.note, user: currentUser };
                 setTransactions([newTransfer, ...transactions]);
                 syncWithBackend({ action: 'add', record: newTransfer });
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
-            };
-
-            const toggleAnalysisCat = (cat) => {
-                if (selectedAnalysisCats.includes(cat)) setSelectedAnalysisCats(selectedAnalysisCats.filter(c => c !== cat));
-                else setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
             };
 
             if (!ENCRYPTED_API_KEY) {
@@ -704,21 +681,19 @@
                         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
                             <h2 className="text-2xl font-bold text-gray-800 mb-2">系統初始設定</h2>
                             <p className="text-sm text-gray-500 mb-6 leading-relaxed">偵測到尚未設定加密的 API 金鑰。<br/>請產生加密字串並貼回程式碼中以啟用系統。</p>
-                            
                             <div className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">1. 填入真實的 Gemini API 金鑰</label>
                                     <input type="password" value={rawApiKey} onChange={e => setRawApiKey(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="AIzaSy..." />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">2. 設定自訂密碼 (與 Google Apps Script 相同)</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">2. 設定自訂密碼</label>
                                     <input type="text" value={setupPassword} onChange={e => setSetupPassword(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="您的自訂密碼" />
                                 </div>
                                 <button onClick={handleGenerateEncryptedKey} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition-colors">產生加密字串</button>
-                                
                                 {generatedEncryptedKey && (
                                     <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                                        <p className="text-sm font-medium text-blue-800 mb-2">3. 請將下方字串複製，並覆蓋程式碼中的 <code>ENCRYPTED_API_KEY</code> 變數，然後重新整理網頁。</p>
+                                        <p className="text-sm font-medium text-blue-800 mb-2">3. 請將下方字串複製並覆蓋程式碼中的 <code>ENCRYPTED_API_KEY</code> 變數，然後重整網頁。</p>
                                         <textarea readOnly value={generatedEncryptedKey} className="w-full p-2 text-xs font-mono bg-white border border-blue-200 rounded outline-none break-all" rows="4" onClick={e => e.target.select()} />
                                     </div>
                                 )}
@@ -748,7 +723,13 @@
                 );
             }
 
-            // --- 內嵌編輯區塊元件 ---
+            const Checkbox = ({ label, checked, onChange, isParent = false }) => (
+                <label className={`flex items-center gap-2 cursor-pointer select-none ${isParent ? 'font-bold text-gray-800' : 'text-gray-600 hover:text-blue-600'}`}>
+                    <input type="checkbox" checked={checked} onChange={onChange} className="custom-checkbox" />
+                    {label}
+                </label>
+            );
+
             const renderInlineEditContent = () => (
                 <div className="space-y-3 w-full animate-in fade-in">
                     <div className="flex flex-wrap gap-2">
@@ -822,10 +803,8 @@
                 const currentLocalMonth = getLocalMonthString();
                 const isViewingCurrentMonth = recordMonth === currentLocalMonth;
                 
-                const todayRecords = displayTransactions.filter(t => t.date === todayStr);
-                const monthRecords = isViewingCurrentMonth 
-                    ? displayTransactions.filter(t => t.date !== todayStr) 
-                    : displayTransactions;
+                const filteredTodayRecords = displayTransactions.filter(t => t.date === todayStr).filter(filterRecord);
+                const filteredMonthRecords = (isViewingCurrentMonth ? displayTransactions.filter(t => t.date !== todayStr) : displayTransactions).filter(filterRecord);
 
                 const getRecordDisplayInfo = (record) => {
                     const isInvestSell = record.type === 'investment' && parseFloat(record.shares) < 0;
@@ -836,19 +815,25 @@
 
                 return (
                     <div className="p-4 space-y-6">
-                        {/* 頂部 AI 記帳區 */}
                         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row gap-2 items-center">
-                            <input 
-                                type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
-                                placeholder="輸入對話自動記帳，例如：買1股QQQ 18000，午餐200現金" className="flex-1 w-full p-2.5 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing}
-                            />
+                            <div className="relative flex-1 w-full">
+                                <input 
+                                    type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
+                                    placeholder="語音或輸入自動記帳：買1股QQQ 18000" className="w-full p-2.5 pr-10 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing}
+                                />
+                                <button 
+                                    onClick={toggleVoiceInput} type="button" title={isListening ? "停止錄音" : "語音輸入"}
+                                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                                >
+                                    <Icon name="mic" size={16} />
+                                </button>
+                            </div>
                             <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50">
                                 {isAiParsing ? <Icon name="loader" size={16} className="animate-spin" /> : <Icon name="zap" size={16} />}
                                 {isAiParsing ? '處理中...' : '直接記帳'}
                             </button>
                         </div>
 
-                        {/* 摺疊式手動記帳區 */}
                         <div>
                             <button
                                 type="button"
@@ -865,7 +850,7 @@
                                 <div className="mt-3 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
                                     <div className="flex gap-2 mb-4">
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>支出</button>
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪薪' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
                                     </div>
                                     <form onSubmit={handleAddRecord} className="space-y-4">
@@ -967,9 +952,13 @@
                             )}
                         </div>
 
-                        {/* 月份切換工具列 */}
                         <div className="flex items-center justify-between mt-8 border-b pb-4">
-                            <h3 className="text-lg font-bold text-gray-800 tracking-wide">歷史紀錄</h3>
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-lg font-bold text-gray-800 tracking-wide">歷史紀錄</h3>
+                                <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${isFilterOpen ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                                    <Icon name="filter" size={14} /> 篩選
+                                </button>
+                            </div>
                             <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
                                 <button onClick={() => changeRecordMonth(-1)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="上個月"><Icon name="chevron-left" size={16} /></button>
                                 <span className="text-sm font-medium text-gray-700 w-20 text-center">{recordMonth.replace('-', '年')}月</span>
@@ -977,11 +966,42 @@
                             </div>
                         </div>
 
-                        {/* 本日記帳區 (僅在檢視當月時顯示) */}
+                        {/* 篩選器面板 */}
+                        {isFilterOpen && (
+                            <div className="bg-white p-4 md:p-5 rounded-xl border border-gray-200 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <Checkbox label="支出" checked={filters.expense} onChange={() => handleParentToggle('expense', allExpenseCats)} isParent />
+                                    <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6">
+                                        {allExpenseCats.map(c => <Checkbox key={c} label={c} checked={isCatChecked('expense', c)} onChange={() => handleChildToggle('expense', c, allExpenseCats)} />)}
+                                    </div>
+                                </div>
+                                <div className="border-t border-gray-100 pt-3 space-y-2">
+                                    <Checkbox label="收入" checked={filters.income} onChange={() => handleParentToggle('income', allIncomeCats)} isParent />
+                                    <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6">
+                                        {allIncomeCats.map(c => <Checkbox key={c} label={c} checked={isCatChecked('income', c)} onChange={() => handleChildToggle('income', c, allIncomeCats)} />)}
+                                    </div>
+                                </div>
+                                <div className="border-t border-gray-100 pt-3 flex flex-wrap gap-x-8 gap-y-4">
+                                    <div className="space-y-2">
+                                        <Checkbox label="投資" checked={filters.investment} onChange={() => handleParentToggle('investment')} isParent />
+                                        <div className="flex gap-4 pl-6">
+                                            <Checkbox label="買入" checked={filters.investBuy} onChange={() => handleChildToggle('investment', 'investBuy')} />
+                                            <Checkbox label="賣出" checked={filters.investSell} onChange={() => handleChildToggle('investment', 'investSell')} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <Checkbox label="轉帳" checked={filters.transfer} onChange={() => setFilters(p => ({...p, transfer: !p.transfer}))} isParent />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {isViewingCurrentMonth && (
                             <div className="space-y-3">
                                 <h4 className="text-sm font-semibold text-gray-500 mb-2">本日記帳</h4>
-                                {todayRecords.length > 0 ? todayRecords.map(record => {
+                                {isLoading ? (
+                                    <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
+                                ) : filteredTodayRecords.length > 0 ? filteredTodayRecords.map(record => {
                                     const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
                                     return editingRecordId === record.id ? (
                                         <div key={record.id} className="bg-blue-50/40 p-4 rounded-xl shadow-sm border border-blue-200">
@@ -1021,16 +1041,17 @@
                             </div>
                         )}
 
-                        {/* 本月記帳區 (緊湊表格風格) */}
                         <div className="space-y-3 pt-4">
                             <h4 className="text-sm font-semibold text-gray-500 mb-2">{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</h4>
-                            {monthRecords.length > 0 ? (
+                            {isLoading ? (
+                                <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
+                            ) : filteredMonthRecords.length > 0 ? (
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
                                     <table className="w-full min-w-[600px] text-left border-collapse">
                                         <thead>
                                             <tr className="bg-gray-50 text-gray-500 text-xs tracking-wider border-b border-gray-200">
                                                 <th className="py-2.5 px-3 font-medium w-16">日期</th>
-                                                <th className="py-2.5 px-3 font-medium w-20">分類</th>
+                                                <th className="py-2.5 px-3 font-medium w-16">分類</th>
                                                 <th className="py-2.5 px-3 font-medium">項目名稱</th>
                                                 <th className="py-2.5 px-3 font-medium w-24">帳戶</th>
                                                 <th className="py-2.5 px-3 font-medium text-right w-24">金額</th>
@@ -1038,7 +1059,7 @@
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
-                                            {monthRecords.map(record => {
+                                            {filteredMonthRecords.map(record => {
                                                 const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
                                                 return editingRecordId === record.id ? (
                                                     <tr key={record.id} className="bg-blue-50/40 border-b border-blue-100">
@@ -1058,8 +1079,9 @@
                                                             <div className="font-medium text-gray-800 truncate max-w-[180px]">
                                                                 {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
                                                             </div>
-                                                            {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <div className="text-[10px] text-gray-400">{record.category}</div>}
-                                                            {record.type === 'investment' && <div className="text-[10px] text-gray-400">{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</div>}
+                                                            {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <div className="text-[10px] text-gray-400">{record.category} {record.note && `• ${record.note}`}</div>}
+                                                            {record.type === 'investment' && <div className="text-[10px] text-gray-400">{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 {record.note && `• ${record.note}`}</div>}
+                                                            {record.type === 'transfer' && record.note && <div className="text-[10px] text-gray-400">{record.note}</div>}
                                                         </td>
                                                         <td className="py-2 px-3 text-gray-600 text-xs whitespace-nowrap">
                                                             {record.type !== 'transfer' ? record.wallet : '-'}
