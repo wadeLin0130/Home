@@ -185,7 +185,7 @@
                 expenseCats: {}, incomeCats: {}
             });
 
-            // 確保原本在「分析」頁面獨立使用的 selectedAnalysisCats 依然存在
+            // 分析頁面用的獨立篩選狀態
             const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
 
             const formatDateString = (dateVal) => {
@@ -678,6 +678,11 @@
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
             };
 
+            const toggleAnalysisCat = (cat) => {
+                if (selectedAnalysisCats.includes(cat)) setSelectedAnalysisCats(selectedAnalysisCats.filter(c => c !== cat));
+                else setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
+            };
+
             if (!ENCRYPTED_API_KEY) {
                 return (
                     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -1049,16 +1054,16 @@
                             {isLoading ? (
                                 <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
                             ) : filteredMonthRecords.length > 0 ? (
-                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-                                    <table className="w-full min-w-[600px] text-left border-collapse">
+                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                    <table className="w-full text-left border-collapse table-fixed sm:table-auto">
                                         <thead>
-                                            <tr className="bg-gray-50 text-gray-500 text-xs tracking-wider border-b border-gray-200">
-                                                <th className="py-2.5 px-3 font-medium w-16">日期</th>
-                                                <th className="py-2.5 px-3 font-medium w-16">分類</th>
-                                                <th className="py-2.5 px-3 font-medium">項目名稱</th>
-                                                <th className="py-2.5 px-3 font-medium w-24">帳戶</th>
-                                                <th className="py-2.5 px-3 font-medium text-right w-24">金額</th>
-                                                <th className="py-2.5 px-3 font-medium text-center w-20">操作</th>
+                                            <tr className="bg-gray-50 text-gray-500 text-[10px] sm:text-xs tracking-wider border-b border-gray-200">
+                                                <th className="py-2 px-1 sm:px-3 font-medium w-10 sm:w-16">日期</th>
+                                                <th className="py-2 px-1 sm:px-3 font-medium w-10 sm:w-16 text-center sm:text-left">分類</th>
+                                                <th className="py-2 px-1 sm:px-3 font-medium w-auto">項目名稱</th>
+                                                <th className="hidden sm:table-cell py-2 px-3 font-medium w-24">帳戶</th>
+                                                <th className="py-2 px-1 sm:px-3 font-medium text-right w-16 sm:w-24">金額</th>
+                                                <th className="py-2 px-1 sm:px-3 font-medium text-center w-12 sm:w-20">操作</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -1066,36 +1071,39 @@
                                                 const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
                                                 return editingRecordId === record.id ? (
                                                     <tr key={record.id} className="bg-blue-50/40 border-b border-blue-100">
-                                                        <td colSpan="6" className="p-3">
+                                                        <td colSpan="6" className="p-2 sm:p-3">
                                                             {renderInlineEditContent()}
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    <tr key={record.id} className="hover:bg-gray-50 text-sm transition-colors group">
-                                                        <td className="py-2 px-3 text-gray-500 whitespace-nowrap">{record.date.substring(5)}</td>
-                                                        <td className="py-2 px-3">
-                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
+                                                    <tr key={record.id} className="hover:bg-gray-50 transition-colors group">
+                                                        <td className="py-2 px-1 sm:px-3 text-gray-500 text-[10px] sm:text-xs whitespace-nowrap overflow-hidden">{record.date.substring(5)}</td>
+                                                        <td className="py-2 px-1 sm:px-3 text-center sm:text-left">
+                                                            <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
                                                                 {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
                                                             </span>
                                                         </td>
-                                                        <td className="py-2 px-3">
-                                                            <div className="font-medium text-gray-800 truncate max-w-[180px]">
+                                                        <td className="py-2 px-1 sm:px-3 overflow-hidden">
+                                                            <div className="font-medium text-gray-800 text-[11px] sm:text-sm truncate">
                                                                 {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
                                                             </div>
-                                                            {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <div className="text-[10px] text-gray-400">{record.category} {record.note && `• ${record.note}`}</div>}
-                                                            {record.type === 'investment' && <div className="text-[10px] text-gray-400">{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 {record.note && `• ${record.note}`}</div>}
-                                                            {record.type === 'transfer' && record.note && <div className="text-[10px] text-gray-400">{record.note}</div>}
+                                                            <div className="text-[9px] sm:text-[10px] text-gray-400 truncate mt-0.5">
+                                                                <span className="sm:hidden mr-1 text-gray-500">{record.type !== 'transfer' ? `[${record.wallet}]` : ''}</span>
+                                                                {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <span>{record.category} {record.note && `• ${record.note}`}</span>}
+                                                                {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 {record.note && `• ${record.note}`}</span>}
+                                                                {record.type === 'transfer' && record.note && <span>{record.note}</span>}
+                                                            </div>
                                                         </td>
-                                                        <td className="py-2 px-3 text-gray-600 text-xs whitespace-nowrap">
+                                                        <td className="hidden sm:table-cell py-2 px-3 text-gray-600 text-[10px] sm:text-xs whitespace-nowrap">
                                                             {record.type !== 'transfer' ? record.wallet : '-'}
                                                         </td>
-                                                        <td className={`py-2 px-3 font-semibold text-right whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
+                                                        <td className={`py-2 px-1 sm:px-3 font-semibold text-right text-[11px] sm:text-sm whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
                                                             {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
                                                         </td>
-                                                        <td className="py-2 px-3 text-center">
-                                                            <div className="flex justify-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => handleEditRecord(record)} className="p-1 text-gray-500 hover:text-blue-600 bg-white hover:bg-blue-50 rounded shadow-sm border border-gray-200 transition-colors" title="編輯"><Icon name="edit-2" size={14} /></button>
-                                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 text-gray-500 hover:text-rose-600 bg-white hover:bg-rose-50 rounded shadow-sm border border-gray-200 transition-colors" title="刪除"><Icon name="trash-2" size={14} /></button>
+                                                        <td className="py-2 px-1 sm:px-3 text-center">
+                                                            <div className="flex justify-center gap-0.5 sm:gap-1 sm:opacity-40 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => handleEditRecord(record)} className="p-1 sm:p-1.5 text-gray-500 hover:text-blue-600 bg-white hover:bg-blue-50 rounded shadow-sm border border-gray-200 transition-colors" title="編輯"><Icon name="edit-2" size={12} className="sm:w-3.5 sm:h-3.5" /></button>
+                                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 sm:p-1.5 text-gray-500 hover:text-rose-600 bg-white hover:bg-rose-50 rounded shadow-sm border border-gray-200 transition-colors" title="刪除"><Icon name="trash-2" size={12} className="sm:w-3.5 sm:h-3.5" /></button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -1270,7 +1278,10 @@
                                     const isSelected = selectedAnalysisCats.includes(cat);
                                     const color = isSelected ? getColor(selectedAnalysisCats.indexOf(cat)) : '#e5e7eb';
                                     return (
-                                        <button key={cat} onClick={() => toggleAnalysisCat(cat)} className={`px-3 py-1 text-xs rounded-full border transition-all ${isSelected ? 'text-white' : 'text-gray-600 bg-white'}`} style={{ backgroundColor: isSelected ? color : 'transparent', borderColor: isSelected ? color : '#e5e7eb' }}>
+                                        <button key={cat} onClick={() => {
+                                            if (selectedAnalysisCats.includes(cat)) setSelectedAnalysisCats(selectedAnalysisCats.filter(c => c !== cat));
+                                            else setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
+                                        }} className={`px-3 py-1 text-xs rounded-full border transition-all ${isSelected ? 'text-white' : 'text-gray-600 bg-white'}`} style={{ backgroundColor: isSelected ? color : 'transparent', borderColor: isSelected ? color : '#e5e7eb' }}>
                                             {cat}
                                         </button>
                                     )
