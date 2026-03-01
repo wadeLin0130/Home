@@ -185,6 +185,9 @@
                 expenseCats: {}, incomeCats: {}
             });
 
+            // 確保原本在「分析」頁面獨立使用的 selectedAnalysisCats 依然存在
+            const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
+
             const formatDateString = (dateVal) => {
                 if (!dateVal) return '';
                 const d = new Date(dateVal);
@@ -850,7 +853,7 @@
                                 <div className="mt-3 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
                                     <div className="flex gap-2 mb-4">
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>支出</button>
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪薪' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
                                     </div>
                                     <form onSubmit={handleAddRecord} className="space-y-4">
