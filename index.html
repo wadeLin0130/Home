@@ -22,7 +22,6 @@
         input[type="number"] { -moz-appearance: textfield; }
         .markdown-body p { margin-bottom: 0.75em; }
         .markdown-body strong { font-weight: 600; color: #1e293b; }
-        /* 自訂核取方塊樣式 */
         .custom-checkbox { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; }
     </style>
 </head>
@@ -43,16 +42,9 @@
             return result;
         };
 
-        const encryptKey = (apiKey, password) => {
-            return btoa(encodeURIComponent(processXOR(apiKey, password)));
-        };
-
+        const encryptKey = (apiKey, password) => btoa(encodeURIComponent(processXOR(apiKey, password)));
         const decryptKey = (encryptedText, password) => {
-            try {
-                return processXOR(decodeURIComponent(atob(encryptedText)), password);
-            } catch (e) {
-                return "";
-            }
+            try { return processXOR(decodeURIComponent(atob(encryptedText)), password); } catch (e) { return ""; }
         };
 
         const callGeminiAPI = async (apiKey, prompt, systemInstruction = null, isJson = false) => {
@@ -122,9 +114,7 @@
         const renderMarkdown = (text) => {
             const parts = text.split(/(\*\*.*?\*\*)/g);
             return parts.map((part, i) => {
-                if (part.startsWith('**') && part.endsWith('**')) {
-                    return <strong key={i}>{part.slice(2, -2)}</strong>;
-                }
+                if (part.startsWith('**') && part.endsWith('**')) return <strong key={i}>{part.slice(2, -2)}</strong>;
                 return <span key={i}>{part}</span>;
             });
         };
@@ -139,7 +129,10 @@
             const [setupPassword, setSetupPassword] = useState('');
             const [generatedEncryptedKey, setGeneratedEncryptedKey] = useState('');
 
-            const [isLoading, setIsLoading] = useState(true);
+            // 初始化載入狀態 (阻擋畫面) 與 背景同步狀態 (僅顯示圖示)
+            const [isInitialLoading, setIsInitialLoading] = useState(true);
+            const [isSyncing, setIsSyncing] = useState(false);
+
             const [activeTab, setActiveTab] = useState('record');
             const users = ['我', '寶寶'];
             const [currentUser, setCurrentUser] = useState('我');
@@ -150,6 +143,14 @@
             const [transactions, setTransactions] = useState([]);
             const [stockPrices, setStockPrices] = useState({});
             const [usdRate, setUsdRate] = useState(32.5);
+
+            // 額度狀態
+            const [creditLimits, setCreditLimits] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('creditLimits');
+                    return saved ? JSON.parse(saved) : { '刷卡': 0, '先用後付': 0 };
+                } catch (e) { return { '刷卡': 0, '先用後付': 0 }; }
+            });
 
             const [isManualFormOpen, setIsManualFormOpen] = useState(false);
             const [recordForm, setRecordForm] = useState({
@@ -165,7 +166,6 @@
             const [aiAdvice, setAiAdvice] = useState('');
             const [isAiAdvising, setIsAiAdvising] = useState(false);
 
-            // 語音輸入狀態
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             const recognitionRef = useRef(null);
             const [isListening, setIsListening] = useState(false);
@@ -173,19 +173,18 @@
             const [recordMonth, setRecordMonth] = useState(getLocalMonthString());
             const [adjustingWallet, setAdjustingWallet] = useState(null);
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
+            const [editingLimitWallet, setEditingLimitWallet] = useState(null);
+            const [editLimitAmount, setEditLimitAmount] = useState('');
+
             const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
             const [analysisMonth, setAnalysisMonth] = useState(getLocalMonthString());
             const [chartType, setChartType] = useState('line');
 
-            // 篩選器狀態
             const [isFilterOpen, setIsFilterOpen] = useState(false);
             const [filters, setFilters] = useState({
                 expense: true, income: true, investment: true, transfer: true,
-                investBuy: true, investSell: true,
-                expenseCats: {}, incomeCats: {}
+                investBuy: true, investSell: true, expenseCats: {}, incomeCats: {}
             });
-
-            // 分析頁面用的獨立篩選狀態
             const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
 
             const formatDateString = (dateVal) => {
@@ -201,6 +200,15 @@
                 return String(dateVal).substring(0, 10);
             };
 
+            // 用於更新交易紀錄並同步更新 LocalStorage
+            const updateTransactionsState = (updater) => {
+                setTransactions(prev => {
+                    const nextState = typeof updater === 'function' ? updater(prev) : updater;
+                    try { localStorage.setItem('cachedTransactions', JSON.stringify(nextState)); } catch(e){}
+                    return nextState;
+                });
+            };
+
             const syncWithBackend = (payload) => {
                 fetch(SCRIPT_URL, {
                     method: 'POST',
@@ -211,7 +219,21 @@
             };
 
             const fetchCloudData = (pwd) => {
-                setIsLoading(true);
+                setIsSyncing(true);
+                
+                // 優先載入快取，達到秒開效果
+                try {
+                    const cachedTx = localStorage.getItem('cachedTransactions');
+                    const cachedPrices = localStorage.getItem('cachedPrices');
+                    if (cachedTx) {
+                        setTransactions(JSON.parse(cachedTx));
+                        setIsInitialLoading(false);
+                    }
+                    if (cachedPrices) {
+                        setStockPrices(JSON.parse(cachedPrices));
+                    }
+                } catch(e) {}
+
                 const queryUrl = `${SCRIPT_URL}?pwd=${encodeURIComponent(pwd)}`;
                 fetch(queryUrl)
                     .then(res => res.json())
@@ -227,6 +249,7 @@
                                 return String(b.id).localeCompare(String(a.id));
                             });
                             setTransactions(parsedRecords);
+                            try { localStorage.setItem('cachedTransactions', JSON.stringify(parsedRecords)); } catch(e){}
                         }
                         if (data.prices) {
                             const newPrices = {};
@@ -242,6 +265,7 @@
                             if (newPrices['TWD=X']) setUsdRate(newPrices['TWD=X']);
                             else if (newPrices['USDTWD']) setUsdRate(newPrices['USDTWD']);
                             setStockPrices(newPrices);
+                            try { localStorage.setItem('cachedPrices', JSON.stringify(newPrices)); } catch(e){}
                         }
                     })
                     .catch(err => {
@@ -251,12 +275,14 @@
                             alert("密碼錯誤或登入已過期，請重新登入。");
                         }
                     })
-                    .finally(() => setIsLoading(false));
+                    .finally(() => {
+                        setIsInitialLoading(false);
+                        setIsSyncing(false);
+                    });
             };
 
             useEffect(() => { feather.replace(); });
 
-            // 語音辨識初始化
             useEffect(() => {
                 if (SpeechRecognition) {
                     const recognition = new SpeechRecognition();
@@ -299,9 +325,9 @@
                                  setIsAuthenticated(true);
                                  fetchCloudData(savedPwd);
                              } else handleLogout();
-                        } else setIsLoading(false);
+                        } else setIsInitialLoading(false);
                     } catch (e) { handleLogout(); }
-                } else setIsLoading(false);
+                } else setIsInitialLoading(false);
             // eslint-disable-next-line react-hooks/exhaustive-deps
             }, []);
 
@@ -323,7 +349,8 @@
                 setSystemPassword('');
                 setActiveApiKey('');
                 setTransactions([]);
-                setIsLoading(false);
+                setIsInitialLoading(false);
+                setIsSyncing(false);
             };
 
             const handleGenerateEncryptedKey = () => {
@@ -331,13 +358,11 @@
                 setGeneratedEncryptedKey(encryptKey(rawApiKey, setupPassword));
             };
 
-            // 動態分類名單
             const allExpenseCats = useMemo(() => Array.from(new Set([...expenseCategories, ...transactions.filter(t=>t.type==='expense').map(t=>t.category)])), [transactions]);
             const allIncomeCats = useMemo(() => Array.from(new Set([...incomeCategories, ...transactions.filter(t=>t.type==='income').map(t=>t.category)])), [transactions]);
 
             const displayTransactions = useMemo(() => transactions.filter(t => t.date.startsWith(recordMonth)), [transactions, recordMonth]);
 
-            // 篩選邏輯判斷
             const isCatChecked = (type, cat) => filters[`${type}Cats`][cat] !== false;
 
             const handleParentToggle = (type, subCats) => {
@@ -552,7 +577,7 @@
                         }
                     });
 
-                    setTransactions(prev => [...newRecords, ...prev]);
+                    updateTransactionsState(prev => [...newRecords, ...prev]);
                     newRecords.forEach(record => {
                         syncWithBackend({ action: 'add', record: record });
                         if (record.type === 'investment' && record.shares > 0) syncWithBackend({ action: 'addSymbol', symbol: record.symbol, market: record.market });
@@ -601,7 +626,7 @@
                     recordData = { ...recordData, category: recordForm.category === '其他' && recordForm.customCategory ? recordForm.customCategory : recordForm.category, itemName: recordForm.itemName, wallet: recordForm.wallet, market: '', symbol: '', shares: '' };
                 }
 
-                setTransactions([recordData, ...transactions]);
+                updateTransactionsState([recordData, ...transactions]);
                 syncWithBackend({ action: 'add', record: recordData });
                 if (recordForm.type === 'investment' && !recordForm.isSell) syncWithBackend({ action: 'addSymbol', symbol: recordData.symbol, market: recordData.market });
                 setRecordForm(prev => ({ ...prev, itemName: '', amount: '', note: '', customCategory: '', symbol: '', shares: '', isSell: false }));
@@ -639,7 +664,7 @@
                     updatedRecord = { ...updatedRecord, category: inlineEditForm.category === '其他' && inlineEditForm.customCategory ? inlineEditForm.customCategory : inlineEditForm.category, itemName: inlineEditForm.itemName, wallet: inlineEditForm.wallet, market: '', symbol: '', shares: '' };
                 }
 
-                setTransactions(transactions.map(t => t.id === updatedRecord.id ? updatedRecord : t));
+                updateTransactionsState(transactions.map(t => t.id === updatedRecord.id ? updatedRecord : t));
                 syncWithBackend({ action: 'edit', record: updatedRecord });
                 if (updatedRecord.type === 'investment' && parseFloat(updatedRecord.shares) > 0) syncWithBackend({ action: 'addSymbol', symbol: updatedRecord.symbol, market: updatedRecord.market });
                 setEditingRecordId(null);
@@ -647,7 +672,7 @@
             };
 
             const handleDeleteRecord = (id) => {
-                setTransactions(transactions.filter(t => t.id.toString() !== id.toString()));
+                updateTransactionsState(transactions.filter(t => t.id.toString() !== id.toString()));
                 syncWithBackend({ action: 'delete', id: id });
             };
 
@@ -664,7 +689,7 @@
                 if (isNaN(newBalance) || newBalance === currentBalance) { setAdjustingWallet(null); return; }
                 const diff = newBalance - currentBalance;
                 const adjustmentRecord = { id: Date.now().toString(), date: new Date().toISOString().split('T')[0], type: diff > 0 ? 'income' : 'expense', amount: Math.abs(diff), category: '其他', itemName: '餘額調整', wallet: wallet, note: `由 ${currentBalance} 調整至 ${newBalance}`, user: currentUser };
-                setTransactions([adjustmentRecord, ...transactions]);
+                updateTransactionsState([adjustmentRecord, ...transactions]);
                 syncWithBackend({ action: 'add', record: adjustmentRecord });
                 setAdjustingWallet(null);
             };
@@ -673,14 +698,9 @@
                 e.preventDefault();
                 if (!transferForm.amount || transferForm.fromWallet === transferForm.toWallet) return;
                 const newTransfer = { id: Date.now().toString(), date: new Date().toISOString().split('T')[0], type: 'transfer', amount: parseFloat(transferForm.amount), fromWallet: transferForm.fromWallet, toWallet: transferForm.toWallet, category: transferForm.fromWallet, wallet: transferForm.toWallet, note: transferForm.note, user: currentUser };
-                setTransactions([newTransfer, ...transactions]);
+                updateTransactionsState([newTransfer, ...transactions]);
                 syncWithBackend({ action: 'add', record: newTransfer });
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
-            };
-
-            const toggleAnalysisCat = (cat) => {
-                if (selectedAnalysisCats.includes(cat)) setSelectedAnalysisCats(selectedAnalysisCats.filter(c => c !== cat));
-                else setSelectedAnalysisCats([...selectedAnalysisCats, cat]);
             };
 
             if (!ENCRYPTED_API_KEY) {
@@ -707,6 +727,15 @@
                                 )}
                             </div>
                         </div>
+                    </div>
+                );
+            }
+
+            if (isInitialLoading) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
+                        <Icon name="loader" size={32} className="animate-spin text-blue-500" />
+                        <p className="font-medium text-lg text-gray-700">正在解鎖系統與載入資料...</p>
                     </div>
                 );
             }
@@ -1007,7 +1036,7 @@
                         {isViewingCurrentMonth && (
                             <div className="space-y-3">
                                 <h4 className="text-sm font-semibold text-gray-500 mb-2">本日記帳</h4>
-                                {isLoading ? (
+                                {isSyncing && transactions.length === 0 ? (
                                     <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
                                 ) : filteredTodayRecords.length > 0 ? filteredTodayRecords.map(record => {
                                     const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
@@ -1045,13 +1074,13 @@
                                             </div>
                                         </div>
                                     );
-                                }) : <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
+                                }) : !isSyncing && <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
                             </div>
                         )}
 
                         <div className="space-y-3 pt-4">
                             <h4 className="text-sm font-semibold text-gray-500 mb-2">{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</h4>
-                            {isLoading ? (
+                            {isSyncing && transactions.length === 0 ? (
                                 <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
                             ) : filteredMonthRecords.length > 0 ? (
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -1112,7 +1141,7 @@
                                         </tbody>
                                     </table>
                                 </div>
-                            ) : <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
+                            ) : !isSyncing && <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
                         </div>
                     </div>
                 );
@@ -1139,27 +1168,61 @@
                         <div className="space-y-3">
                             <h3 className="text-lg font-semibold text-gray-800">所有錢包</h3>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {wallets.map(w => (
-                                    <div key={w} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
-                                        <div className="flex justify-between items-center w-full">
-                                            <span className="font-medium text-gray-700">{w}</span>
-                                            {adjustingWallet !== w && (
-                                                <button onClick={() => { setAdjustingWallet(w); setAdjustWalletAmount(walletBalances[w].toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="調整餘額">
-                                                    <Icon name="edit-2" size={14} />
-                                                </button>
+                                {wallets.map(w => {
+                                    const isCredit = w === '刷卡' || w === '先用後付';
+                                    const balance = walletBalances[w];
+                                    const limit = creditLimits[w] || 0;
+                                    
+                                    return (
+                                        <div key={w} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
+                                            <div className="flex justify-between items-center w-full">
+                                                <span className="font-medium text-gray-700 flex items-center gap-1">
+                                                    {w}
+                                                    {isCredit && editingLimitWallet !== w && adjustingWallet !== w && (
+                                                        <button onClick={() => { setEditingLimitWallet(w); setEditLimitAmount(limit.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="設定最高額度">
+                                                            <Icon name="settings" size={12} />
+                                                        </button>
+                                                    )}
+                                                </span>
+                                                {adjustingWallet !== w && editingLimitWallet !== w && (
+                                                    <button onClick={() => { setAdjustingWallet(w); setAdjustWalletAmount(balance.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="調整餘額">
+                                                        <Icon name="edit-2" size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            {editingLimitWallet === w ? (
+                                                <div className="flex items-center gap-1 mt-1">
+                                                    <input type="number" value={editLimitAmount} onChange={e => setEditLimitAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus placeholder="最高額度" />
+                                                    <button onClick={() => {
+                                                        const val = parseFloat(editLimitAmount) || 0;
+                                                        const newLimits = {...creditLimits, [w]: val};
+                                                        setCreditLimits(newLimits);
+                                                        try { localStorage.setItem('creditLimits', JSON.stringify(newLimits)); } catch(e){}
+                                                        setEditingLimitWallet(null);
+                                                    }} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
+                                                </div>
+                                            ) : adjustingWallet === w ? (
+                                                <div className="flex items-center gap-1 mt-1">
+                                                    <input type="number" value={adjustWalletAmount} onChange={e => setAdjustWalletAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus />
+                                                    <button onClick={() => handleAdjustBalanceConfirm(w, balance)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
+                                                    <button onClick={() => setAdjustingWallet(null)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"><Icon name="x" size={16}/></button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col gap-0.5 mt-1">
+                                                    <span className={`text-xl font-bold ${balance < 0 ? 'text-rose-500' : 'text-gray-900'}`}>
+                                                        ${balance.toLocaleString()}
+                                                    </span>
+                                                    {isCredit && (
+                                                        <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                                                            可用額度: ${(limit + balance).toLocaleString()}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                        {adjustingWallet === w ? (
-                                            <div className="flex items-center gap-1 mt-1">
-                                                <input type="number" value={adjustWalletAmount} onChange={e => setAdjustWalletAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus />
-                                                <button onClick={() => handleAdjustBalanceConfirm(w, walletBalances[w])} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
-                                                <button onClick={() => setAdjustingWallet(null)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"><Icon name="x" size={16}/></button>
-                                            </div>
-                                        ) : (
-                                            <span className={`text-xl font-bold ${walletBalances[w] < 0 ? 'text-rose-500' : 'text-gray-900'}`}>${walletBalances[w].toLocaleString()}</span>
-                                        )}
-                                    </div>
-                                ))}
+                                    );
+                                })}
                                 <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
                                     <div className="flex justify-between items-center w-full">
                                         <span className="font-medium text-gray-700">股票資產</span>
@@ -1370,7 +1433,7 @@
                     <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
                         <div className="px-6 mb-8 flex items-center justify-between">
                             <h1 className="font-bold text-xl text-gray-800 tracking-tight">家庭記帳本</h1>
-                            {isLoading && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500" title="同步中..." />}
+                            {isSyncing && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500" title="同步中..." />}
                         </div>
                         <div className="flex flex-col gap-2 px-4 flex-1">
                             {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包與資產' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }].map(tab => (
@@ -1403,7 +1466,7 @@
                             <div className="px-4 py-3 flex justify-between items-center max-w-4xl mx-auto w-full">
                                 <div className="flex items-center gap-2">
                                     <h1 className="font-bold text-xl text-gray-800 tracking-tight md:hidden">家庭記帳本</h1>
-                                    {isLoading && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500 md:hidden" title="同步中..." />}
+                                    {isSyncing && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500 md:hidden" title="同步中..." />}
                                 </div>
                                 <div className="flex items-center gap-2 ml-auto">
                                     <button onClick={handleLogout} className="md:hidden p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors" title="登出系統">
