@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>家庭記帳本</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%233b82f6'/><text x='50%' y='50%' font-family='sans-serif' font-weight='bold' font-size='60' dominant-baseline='central' text-anchor='middle' fill='white'>帳</text></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -13,25 +12,20 @@
     <style>
         body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
         #root { min-height: 100vh; }
-        
-        input[type="number"]::-webkit-inner-spin-button,
-        input[type="number"]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
         .markdown-body p { margin-bottom: 0.75em; }
         .markdown-body strong { font-weight: 600; color: #1e293b; }
         .custom-checkbox { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; }
+        .highlight { background-color: #fef08a; font-weight: bold; padding: 0 2px; border-radius: 2px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
         const { useState, useMemo, useEffect, useRef } = React;
 
-        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUEZQzkofxaxbUYYuFYAA7CEHuKaPSmf1qjtH_wmBfe4MIVN2ebW8QJ3qSIo7LxkDw/exec';
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcEQhBZA8DCW-YbRxjEwXO-7kOpaPtHgFw85R0pRPBxsT01NRzZdVVZzI17fTkdz-O/exec';
         const ENCRYPTED_API_KEY = "cSU3Q0pXY0xzVyU3QiUwM3ElNUVvZ2lOdVIlMDV6JTAzT1ZpRVBDYXNYZG4lMDFXJTA1U1hyQw=="; 
 
         const processXOR = (text, key) => {
@@ -53,29 +47,20 @@
                  error.needRelogin = true;
                  throw error;
             }
-            
             const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
             const payload = { contents: [{ parts: [{ text: prompt }] }] };
             if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
             if (isJson) payload.generationConfig = { responseMimeType: "application/json" };
 
             let retries = 3;
             let delay = 1000;
-            
             while (retries > 0) {
                 try {
-                    const response = await fetch(GEMINI_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    
+                    const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     if (!response.ok) {
                         if(response.status === 400) throw new Error("API 金鑰無效或發生錯誤。");
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                    
                     const data = await response.json();
                     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
                 } catch (error) {
@@ -94,6 +79,22 @@
         const Icon = ({ name, size = 24, className = "" }) => {
             const svgString = feather.icons[name] ? feather.icons[name].toSvg({ width: size, height: size, class: className }) : '';
             return <span dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
+        };
+
+        const HighlightText = ({ text, highlight }) => {
+            if (!highlight) return <span>{text}</span>;
+            const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+            return (
+                <span>
+                    {parts.map((part, i) =>
+                        part.toLowerCase() === highlight.toLowerCase() ? (
+                            <span key={i} className="highlight">{part}</span>
+                        ) : (
+                            <span key={i}>{part}</span>
+                        )
+                    )}
+                </span>
+            );
         };
 
         const getLocalDateString = () => {
@@ -119,38 +120,112 @@
             });
         };
 
+        const defaultExpenseCats = ['飲食', '購物', '固定支出', '旅行', '工作', '其他'];
+        const defaultIncomeCats = ['薪資', '獎金', '補助', '自由工作', '其他'];
+        const defaultAccounts = [
+            { id: '1', name: '現金', type: '現金', initialBalance: 0, limit: 0 },
+            { id: '2', name: '信用卡', type: '信用卡', initialBalance: 0, limit: 0 },
+            { id: '3', name: '先用後付', type: '先用後付', initialBalance: 0, limit: 0 }
+        ];
+
+        // 台新權益資料庫
+        const rewardsData = [
+            {
+                id: 1, name: "Pay著刷", rate: "最高 3.8%", rateColor: "bg-red-100 text-red-800 border-red-200", icon: "smartphone",
+                description: "使用指定行動支付綁定消費享高額回饋。",
+                conditions: "需使用實體信用卡、台新 Pay、Apple Pay、Google 錢包或 Samsung Pay 綁定消費，或使用 LINE Pay 於指定權益消費方享加碼回饋。",
+                categories: [
+                    { title: "台新 Pay (含Pay+)", items: "新光三越、7-11、全家、康是美、IKEA 等。海外交易免 1.5% 手續費（含韓國 GS25、emart24 等）。", keywordList: ["台新 Pay", "台新Pay", "Pay+", "新光三越", "7-11", "全家", "康是美", "IKEA", "GS25", "emart24", "韓國"] },
+                    { title: "LINE Pay", items: "綁定支付享 2.3% 回饋。", keywordList: ["LINE Pay", "LINEPay"] },
+                    { title: "其他支付", items: "Apple Pay、Google 錢包 (Google Pay)、Samsung Pay", keywordList: ["Apple Pay", "Google 錢包", "Google Pay", "Samsung Pay"] }
+                ]
+            },
+            {
+                id: 2, name: "天天刷", rate: "最高 3.3%", rateColor: "bg-orange-100 text-orange-800 border-orange-200", icon: "coffee",
+                description: "涵蓋日常超商、交通與藥妝消費。",
+                categories: [
+                    { title: "超商量販", items: "7-11 及全家 (限台新 Pay)、家樂福、大買家、唐吉訶德等。", keywordList: ["超商", "量販", "7-11", "全家", "家樂福", "大買家", "唐吉訶德", "Donki"] },
+                    { title: "通勤交通", items: "臺鐵、高鐵、台灣大車隊、LINEGO、Uber 等。", keywordList: ["通勤", "交通", "臺鐵", "台鐵", "火車", "高鐵", "台灣大車隊", "55688", "計程車", "LINEGO", "Uber"] },
+                    { title: "加油充電", items: "USPACE、全國加油站、華城電能 EVALUE 等。", keywordList: ["加油", "充電", "USPACE", "全國加油站", "華城電能", "EVALUE"] },
+                    { title: "藥妝藥局", items: "寶雅、康是美、屈臣氏、大樹藥局等。", keywordList: ["藥妝", "藥局", "寶雅", "POYA", "康是美", "屈臣氏", "大樹藥局"] }
+                ]
+            },
+            {
+                id: 3, name: "大筆刷", rate: "最高 3.3%", rateColor: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: "shopping-bag",
+                description: "適合百貨購物、居家裝修與服飾採買。",
+                categories: [
+                    { title: "指定百貨", items: "新光三越、遠東百貨、遠東 SOGO、台北101、夢時代等。", keywordList: ["百貨", "新光三越", "遠東百貨", "遠百", "遠東 SOGO", "SOGO", "台北101", "101", "夢時代"] },
+                    { title: "指定 Outlet", items: "MITSUI OUTLET PARK、華泰名品城等。", keywordList: ["Outlet", "MITSUI", "三井", "華泰名品城"] },
+                    { title: "居家裝修", items: "IKEA、特力屋、HOLA、宜得利等。", keywordList: ["居家", "裝修", "家具", "IKEA", "特力屋", "HOLA", "宜得利", "NITORI"] },
+                    { title: "時尚品味", items: "UNIQLO、ZARA、NET、lululemon 等。", keywordList: ["時尚", "服飾", "衣服", "UNIQLO", "優衣庫", "ZARA", "NET", "lululemon"] }
+                ]
+            },
+            {
+                id: 4, name: "好饗刷", rate: "最高 3.3%", rateColor: "bg-green-100 text-green-800 border-green-200", icon: "heart",
+                description: "餐飲、外送、娛樂與飯店住宿專用。",
+                categories: [
+                    { title: "餐飲外送", items: "全臺餐飲 (不含餐券)、王品瘋Pay、Uber Eats、Foodpanda。", keywordList: ["餐廳", "餐飲", "吃飯", "外送", "王品瘋Pay", "王品", "Uber Eats", "Foodpanda", "熊貓"] },
+                    { title: "購票娛樂", items: "拓元售票、KKTIX、寬宏售票、FunNow 等。", keywordList: ["購票", "娛樂", "展覽", "演唱會", "門票", "拓元", "KKTIX", "寬宏", "FunNow"] },
+                    { title: "指定 KTV", items: "錢櫃、好樂迪、享溫馨等。", keywordList: ["KTV", "唱歌", "錢櫃", "好樂迪", "享溫馨"] },
+                    { title: "指定飯店", items: "晶華國際酒店集團、雲朗觀光、台北君悅酒店等 (不含票券)。", keywordList: ["飯店", "住宿", "酒店", "晶華", "雲朗", "君悅"] }
+                ]
+            },
+            {
+                id: 5, name: "數趣刷", rate: "最高 3.3%", rateColor: "bg-blue-100 text-blue-800 border-blue-200", icon: "monitor",
+                description: "網購、線上課程、影音娛樂及 AI 服務。",
+                categories: [
+                    { title: "網購平台", items: "蝦皮、momo、Coupang、PChome、淘寶、Amazon 等。", keywordList: ["網購", "購物", "線上購物", "蝦皮", "shopee", "momo", "Coupang", "酷澎", "PChome", "淘寶", "taobao", "Amazon", "亞馬遜"] },
+                    { title: "線上課程", items: "知識衛星、Amazing Talker、Hahow 等。", keywordList: ["線上課程", "課程", "學習", "知識衛星", "Amazing Talker", "Hahow"] },
+                    { title: "遊戲影音", items: "Steam、PlayStation、Nintendo、Netflix、Disney+ 等。", keywordList: ["遊戲", "影音", "追劇", "電影", "Steam", "PlayStation", "PS4", "PS5", "Nintendo", "任天堂", "Switch", "Netflix", "Disney+"] },
+                    { title: "AI 服務", items: "ChatGPT、Notion、Canva、Perplexity、Claude。", keywordList: ["AI", "人工智慧", "ChatGPT", "Notion", "Canva", "Perplexity", "Claude"] }
+                ]
+            },
+            {
+                id: 6, name: "玩旅刷", rate: "最高 3.3%", rateColor: "bg-indigo-100 text-indigo-800 border-indigo-200", icon: "navigation",
+                description: "海外消費、航空機票與旅遊行程。",
+                categories: [
+                    { title: "海外消費", items: "實體與線上交易、歐洲國家交易。", keywordList: ["海外", "國外", "出國", "外幣", "歐洲"] },
+                    { title: "航空公司", items: "中華航空、長榮航空、星宇航空、國泰航空等。", keywordList: ["航空", "機票", "中華航空", "華航", "長榮航空", "長榮", "星宇航空", "星宇", "國泰航空", "國泰"] },
+                    { title: "海外交通與網路", items: "Uber、Grab、SUICA、WOWPASS 等。", keywordList: ["海外交通", "網卡", "Uber", "Grab", "SUICA", "西瓜卡", "WOWPASS"] },
+                    { title: "訂房與旅行社", items: "Klook、KKday、Agoda、Booking.com、雄獅旅遊、易遊網等。", keywordList: ["訂房", "旅行社", "旅遊", "行程", "Klook", "客路", "KKday", "Agoda", "Booking.com", "booking", "雄獅旅遊", "雄獅", "易遊網"] }
+                ]
+            },
+            {
+                id: 7, name: "假日刷與其他", rate: "多種回饋", rateColor: "bg-purple-100 text-purple-800 border-purple-200", icon: "calendar",
+                description: "假日加碼、保費及市區停車優惠。",
+                categories: [
+                    { title: "假日刷", items: "國內節假日不限通路消費 (含 LINE Pay 綁定與保費) 享 2% 回饋。", keywordList: ["假日", "週末", "節日", "六日", "2%"] },
+                    { title: "保費優惠", items: "最高享 1.3% 回饋，或可選不限金額分 12 期 0 利率。", keywordList: ["保費", "保險", "分期", "1.3%"] },
+                    { title: "停車優惠", items: "一般消費滿 NT$6,000，享次月機車路邊停車 8 次優惠。", keywordList: ["停車", "機車", "滿額"] }
+                ]
+            }
+        ];
+
         function App() {
             const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [systemPassword, setSystemPassword] = useState('');
             const [activeApiKey, setActiveApiKey] = useState('');
             const [loginError, setLoginError] = useState('');
-            
             const [rawApiKey, setRawApiKey] = useState('');
             const [setupPassword, setSetupPassword] = useState('');
             const [generatedEncryptedKey, setGeneratedEncryptedKey] = useState('');
 
-            // 初始化載入狀態 (阻擋畫面) 與 背景同步狀態 (僅顯示圖示)
             const [isInitialLoading, setIsInitialLoading] = useState(true);
             const [isSyncing, setIsSyncing] = useState(false);
 
             const [activeTab, setActiveTab] = useState('record');
             const users = ['我', '寶寶'];
             const [currentUser, setCurrentUser] = useState('我');
-            const wallets = ['現金', '刷卡', '先用後付'];
-            const expenseCategories = ['飲食', '購物', '固定支出', '旅行', '工作', '其他'];
-            const incomeCategories = ['薪資', '獎金', '補助', '自由工作', '其他'];
             
             const [transactions, setTransactions] = useState([]);
             const [stockPrices, setStockPrices] = useState({});
             const [usdRate, setUsdRate] = useState(32.5);
 
-            // 額度狀態
-            const [creditLimits, setCreditLimits] = useState(() => {
-                try {
-                    const saved = localStorage.getItem('creditLimits');
-                    return saved ? JSON.parse(saved) : { '刷卡': 0, '先用後付': 0 };
-                } catch (e) { return { '刷卡': 0, '先用後付': 0 }; }
-            });
+            const [expenseCategories, setExpenseCategories] = useState(defaultExpenseCats);
+            const [incomeCategories, setIncomeCategories] = useState(defaultIncomeCats);
+            const [accounts, setAccounts] = useState(defaultAccounts);
+
+            const activeWallets = useMemo(() => accounts.map(a => a.name), [accounts]);
 
             const [isManualFormOpen, setIsManualFormOpen] = useState(false);
             const [recordForm, setRecordForm] = useState({
@@ -166,6 +241,9 @@
             const [aiAdvice, setAiAdvice] = useState('');
             const [isAiAdvising, setIsAiAdvising] = useState(false);
 
+            const [taishinAdvice, setTaishinAdvice] = useState('');
+            const [isTaishinAdvising, setIsTaishinAdvising] = useState(false);
+
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             const recognitionRef = useRef(null);
             const [isListening, setIsListening] = useState(false);
@@ -175,17 +253,63 @@
             const [adjustWalletAmount, setAdjustWalletAmount] = useState('');
             const [editingLimitWallet, setEditingLimitWallet] = useState(null);
             const [editLimitAmount, setEditLimitAmount] = useState('');
-
-            const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '刷卡', amount: '', note: '' });
+            const [transferForm, setTransferForm] = useState({ fromWallet: '現金', toWallet: '信用卡', amount: '', note: '' });
             const [analysisMonth, setAnalysisMonth] = useState(getLocalMonthString());
             const [chartType, setChartType] = useState('line');
 
             const [isFilterOpen, setIsFilterOpen] = useState(false);
             const [filters, setFilters] = useState({
-                expense: true, income: true, investment: true, transfer: true,
-                investBuy: true, investSell: true, expenseCats: {}, incomeCats: {}
+                expense: true, income: true, investment: true, transfer: true, investBuy: true, investSell: true, expenseCats: {}, incomeCats: {}
             });
             const [selectedAnalysisCats, setSelectedAnalysisCats] = useState([]);
+
+            const [newCat, setNewCat] = useState('');
+            const [catType, setCatType] = useState('expense');
+            const [newAcc, setNewAcc] = useState({ name: '', type: '現金', initialBalance: 0, limit: 0 });
+
+            // 台新搜尋器狀態
+            const [taishinSearchTerm, setTaishinSearchTerm] = useState('');
+
+            const filteredTaishinRewards = useMemo(() => {
+                const lowerFilter = taishinSearchTerm.toLowerCase().trim();
+                if (!lowerFilter) return rewardsData.map(r => ({ ...r, displayCats: r.categories }));
+
+                const results = [];
+                rewardsData.forEach(reward => {
+                    let isMatch = false;
+                    const matchedCategories = [];
+
+                    if (reward.name.toLowerCase().includes(lowerFilter) || reward.description.toLowerCase().includes(lowerFilter)) {
+                        isMatch = true;
+                    }
+
+                    reward.categories.forEach(cat => {
+                        let catMatched = false;
+                        if (cat.title.toLowerCase().includes(lowerFilter) || cat.items.toLowerCase().includes(lowerFilter)) {
+                            catMatched = true;
+                            isMatch = true;
+                        }
+                        if (!catMatched) {
+                            for (let keyword of cat.keywordList) {
+                                if (keyword.toLowerCase().includes(lowerFilter)) {
+                                    catMatched = true;
+                                    isMatch = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (catMatched) matchedCategories.push(cat);
+                    });
+
+                    if (isMatch) {
+                        results.push({
+                            ...reward,
+                            displayCats: matchedCategories.length > 0 && !reward.name.toLowerCase().includes(lowerFilter) && !reward.description.toLowerCase().includes(lowerFilter) ? matchedCategories : reward.categories
+                        });
+                    }
+                });
+                return results;
+            }, [taishinSearchTerm]);
 
             const formatDateString = (dateVal) => {
                 if (!dateVal) return '';
@@ -200,7 +324,6 @@
                 return String(dateVal).substring(0, 10);
             };
 
-            // 用於更新交易紀錄並同步更新 LocalStorage
             const updateTransactionsState = (updater) => {
                 setTransactions(prev => {
                     const nextState = typeof updater === 'function' ? updater(prev) : updater;
@@ -212,25 +335,68 @@
             const syncWithBackend = (payload) => {
                 fetch(SCRIPT_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
                     headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify({ ...payload, pwd: systemPassword })
-                }).catch(err => console.error("Sync error:", err));
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === 'error') {
+                        console.error("資料庫拒絕存取：", data.message);
+                        alert("寫入資料庫失敗，請確認您的密碼是否正確，以及 Google Apps Script 部署權限是否設為「所有人」。");
+                    }
+                })
+                .catch(err => {
+                    console.error("網路請求錯誤：", err);
+                });
+            };
+
+            const saveSettingsToCloud = (newSettings) => {
+                setIsSyncing(true);
+                fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'saveSettings', settings: newSettings, pwd: systemPassword })
+                }).then(res => res.json())
+                  .then(data => {
+                    setIsSyncing(false);
+                    if(data.status === 'error') {
+                        alert("儲存設定失敗，後端回傳錯誤：" + data.message);
+                    } else {
+                        try { localStorage.setItem('cachedSettings', JSON.stringify(newSettings)); } catch(e) {}
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    setIsSyncing(false);
+                    alert("儲存設定時發生網路錯誤，請確認網址與權限設定。");
+                });
+            };
+
+            const handleUpdateSettings = (newExp, newInc, newAcc) => {
+                setExpenseCategories(newExp);
+                setIncomeCategories(newInc);
+                setAccounts(newAcc);
+                saveSettingsToCloud({
+                    expenseCategories: newExp,
+                    incomeCategories: newInc,
+                    accounts: newAcc
+                });
             };
 
             const fetchCloudData = (pwd) => {
                 setIsSyncing(true);
-                
-                // 優先載入快取，達到秒開效果
                 try {
                     const cachedTx = localStorage.getItem('cachedTransactions');
                     const cachedPrices = localStorage.getItem('cachedPrices');
+                    const cachedSettings = localStorage.getItem('cachedSettings');
                     if (cachedTx) {
                         setTransactions(JSON.parse(cachedTx));
-                        setIsInitialLoading(false);
                     }
-                    if (cachedPrices) {
-                        setStockPrices(JSON.parse(cachedPrices));
+                    if (cachedPrices) setStockPrices(JSON.parse(cachedPrices));
+                    if (cachedSettings) {
+                        const s = JSON.parse(cachedSettings);
+                        if (s.expenseCategories) setExpenseCategories(s.expenseCategories);
+                        if (s.incomeCategories) setIncomeCategories(s.incomeCategories);
+                        if (s.accounts) setAccounts(s.accounts);
                     }
                 } catch(e) {}
 
@@ -239,10 +405,31 @@
                     .then(res => res.json())
                     .then(data => {
                         if (data.status === 'error') throw new Error(data.message);
+                        
+                        if (data.settings && Object.keys(data.settings).length > 0) {
+                            let updatedSettings = {};
+                            if (data.settings.expenseCategories) {
+                                const parsed = JSON.parse(data.settings.expenseCategories);
+                                setExpenseCategories(parsed);
+                                updatedSettings.expenseCategories = parsed;
+                            }
+                            if (data.settings.incomeCategories) {
+                                const parsed = JSON.parse(data.settings.incomeCategories);
+                                setIncomeCategories(parsed);
+                                updatedSettings.incomeCategories = parsed;
+                            }
+                            if (data.settings.accounts) {
+                                const accData = JSON.parse(data.settings.accounts);
+                                setAccounts(accData);
+                                updatedSettings.accounts = accData;
+                            }
+                            try { localStorage.setItem('cachedSettings', JSON.stringify(updatedSettings)); } catch(e) {}
+                        }
+
                         if (data.transactions) {
                             const parsedRecords = data.transactions.map(t => ({
                                 ...t, amount: parseFloat(t.amount) || 0, shares: t.shares ? (parseFloat(t.shares) || 0) : '', date: formatDateString(t.date),
-                                fromWallet: t.type === 'transfer' ? (t.category || '現金') : t.fromWallet, toWallet: t.type === 'transfer' ? (t.wallet || '刷卡') : t.toWallet
+                                fromWallet: t.type === 'transfer' ? (t.category || '現金') : t.fromWallet, toWallet: t.type === 'transfer' ? (t.wallet || '信用卡') : t.toWallet
                             }));
                             parsedRecords.sort((a, b) => {
                                 if (a.date !== b.date) return b.date.localeCompare(a.date);
@@ -289,7 +476,6 @@
                     recognition.continuous = false;
                     recognition.interimResults = false;
                     recognition.lang = 'zh-TW';
-                    
                     recognition.onstart = () => setIsListening(true);
                     recognition.onend = () => setIsListening(false);
                     recognition.onresult = (event) => {
@@ -305,12 +491,8 @@
             }, [SpeechRecognition]);
 
             const toggleVoiceInput = () => {
-                if (!recognitionRef.current) {
-                    alert("您的瀏覽器不支援語音輸入功能。");
-                    return;
-                }
-                if (isListening) recognitionRef.current.stop();
-                else recognitionRef.current.start();
+                if (!recognitionRef.current) { alert("瀏覽器不支援語音功能"); return; }
+                if (isListening) recognitionRef.current.stop(); else recognitionRef.current.start();
             };
 
             useEffect(() => {
@@ -324,10 +506,21 @@
                                  setActiveApiKey(decrypted);
                                  setIsAuthenticated(true);
                                  fetchCloudData(savedPwd);
-                             } else handleLogout();
-                        } else setIsInitialLoading(false);
-                    } catch (e) { handleLogout(); }
-                } else setIsInitialLoading(false);
+                                 setIsInitialLoading(false);
+                             } else {
+                                handleLogout();
+                                setIsInitialLoading(false);
+                             }
+                        } else {
+                            setIsInitialLoading(false);
+                        }
+                    } catch (e) {
+                        handleLogout();
+                        setIsInitialLoading(false);
+                    }
+                } else {
+                    setIsInitialLoading(false);
+                }
             // eslint-disable-next-line react-hooks/exhaustive-deps
             }, []);
 
@@ -340,6 +533,7 @@
                     setActiveApiKey(decrypted);
                     setIsAuthenticated(true);
                     fetchCloudData(systemPassword);
+                    setIsInitialLoading(false);
                 } else setLoginError('密碼錯誤，無法解鎖系統。');
             };
 
@@ -358,8 +552,8 @@
                 setGeneratedEncryptedKey(encryptKey(rawApiKey, setupPassword));
             };
 
-            const allExpenseCats = useMemo(() => Array.from(new Set([...expenseCategories, ...transactions.filter(t=>t.type==='expense').map(t=>t.category)])), [transactions]);
-            const allIncomeCats = useMemo(() => Array.from(new Set([...incomeCategories, ...transactions.filter(t=>t.type==='income').map(t=>t.category)])), [transactions]);
+            const allExpenseCats = useMemo(() => Array.from(new Set([...expenseCategories, ...transactions.filter(t=>t.type==='expense').map(t=>t.category)])), [transactions, expenseCategories]);
+            const allIncomeCats = useMemo(() => Array.from(new Set([...incomeCategories, ...transactions.filter(t=>t.type==='income').map(t=>t.category)])), [transactions, incomeCategories]);
 
             const displayTransactions = useMemo(() => transactions.filter(t => t.date.startsWith(recordMonth)), [transactions, recordMonth]);
 
@@ -369,14 +563,10 @@
                 setFilters(prev => {
                     const nextVal = !prev[type];
                     const nextObj = { ...prev, [type]: nextVal };
-                    if (type === 'investment') {
-                        nextObj.investBuy = nextVal;
-                        nextObj.investSell = nextVal;
-                    } else if (type === 'expense' || type === 'income') {
-                        const catKey = `${type}Cats`;
-                        const newCats = {};
-                        subCats.forEach(c => newCats[c] = nextVal);
-                        nextObj[catKey] = newCats;
+                    if (type === 'investment') { nextObj.investBuy = nextVal; nextObj.investSell = nextVal; } 
+                    else if (type === 'expense' || type === 'income') {
+                        const newCats = {}; subCats.forEach(c => newCats[c] = nextVal);
+                        nextObj[`${type}Cats`] = newCats;
                     }
                     return nextObj;
                 });
@@ -387,14 +577,11 @@
                     const nextObj = { ...prev };
                     if (parentType === 'investment') {
                         nextObj[childKey] = !prev[childKey];
-                        const newBuy = childKey === 'investBuy' ? nextObj.investBuy : prev.investBuy;
-                        const newSell = childKey === 'investSell' ? nextObj.investSell : prev.investSell;
-                        nextObj.investment = newBuy && newSell;
+                        nextObj.investment = nextObj.investBuy && nextObj.investSell;
                     } else {
-                        const catKey = `${parentType}Cats`;
-                        const currentCatState = prev[catKey] || {};
+                        const currentCatState = prev[`${parentType}Cats`] || {};
                         const newCats = { ...currentCatState, [childKey]: currentCatState[childKey] === false }; 
-                        nextObj[catKey] = newCats;
+                        nextObj[`${parentType}Cats`] = newCats;
                         nextObj[parentType] = allChildren.every(c => newCats[c] !== false);
                     }
                     return nextObj;
@@ -405,34 +592,34 @@
                 if (t.type === 'transfer') return filters.transfer;
                 if (t.type === 'expense') return filters.expenseCats[t.category] !== false;
                 if (t.type === 'income') return filters.incomeCats[t.category] !== false;
-                if (t.type === 'investment') {
-                    const isSell = parseFloat(t.shares) < 0;
-                    return isSell ? filters.investSell : filters.investBuy;
-                }
+                if (t.type === 'investment') return (parseFloat(t.shares) < 0) ? filters.investSell : filters.investBuy;
                 return true;
             };
 
-            const walletBalances = useMemo(() => {
-                const balances = wallets.reduce((acc, wallet) => { acc[wallet] = 0; return acc; }, {});
+            const accountBalances = useMemo(() => {
+                const balances = {};
+                accounts.forEach(acc => {
+                    balances[acc.name] = { ...acc, currentBalance: parseFloat(acc.initialBalance) || 0 };
+                });
+
                 transactions.forEach(t => {
-                    if (t.type === 'expense' && balances[t.wallet] !== undefined) balances[t.wallet] -= t.amount;
-                    else if (t.type === 'income' && balances[t.wallet] !== undefined) balances[t.wallet] += t.amount;
+                    if (t.type === 'expense' && balances[t.wallet]) balances[t.wallet].currentBalance -= t.amount;
+                    else if (t.type === 'income' && balances[t.wallet]) balances[t.wallet].currentBalance += t.amount;
                     else if (t.type === 'transfer') {
-                        if (balances[t.fromWallet] !== undefined) balances[t.fromWallet] -= t.amount;
-                        if (balances[t.toWallet] !== undefined) balances[t.toWallet] += t.amount;
-                    } else if (t.type === 'investment' && balances['現金'] !== undefined) {
-                        balances['現金'] += (Number(t.shares) < 0) ? t.amount : -t.amount;
+                        if (balances[t.fromWallet]) balances[t.fromWallet].currentBalance -= t.amount;
+                        if (balances[t.toWallet]) balances[t.toWallet].currentBalance += t.amount;
+                    } else if (t.type === 'investment' && balances['現金']) {
+                        balances['現金'].currentBalance += (Number(t.shares) < 0) ? t.amount : -t.amount;
                     }
                 });
                 return balances;
-            }, [transactions, wallets]);
+            }, [transactions, accounts]);
 
             const { portfolio, totalStockValue } = useMemo(() => {
                 const holdings = {};
                 const sortedTx = [...transactions].sort((a, b) => {
                     const dateCmp = a.date.localeCompare(b.date);
-                    if (dateCmp !== 0) return dateCmp;
-                    return String(a.id).localeCompare(String(b.id)); 
+                    return dateCmp !== 0 ? dateCmp : String(a.id).localeCompare(String(b.id)); 
                 });
 
                 sortedTx.forEach(t => {
@@ -441,15 +628,12 @@
                         const symbol = String(t.symbol || '').trim().toUpperCase();
                         const key = market === 'TW' ? `${symbol}.TW` : symbol;
                         if (!holdings[key]) holdings[key] = { symbol, market, shares: 0, cost: 0 };
-                        
                         const txShares = parseFloat(t.shares) || 0;
                         const txAmount = parseFloat(t.amount) || 0;
-
                         if (txShares < 0) {
-                            const sharesToSell = Math.abs(txShares);
                             const costPerShare = holdings[key].shares > 0 ? holdings[key].cost / holdings[key].shares : 0;
-                            holdings[key].shares -= sharesToSell;
-                            holdings[key].cost -= costPerShare * sharesToSell;
+                            holdings[key].shares -= Math.abs(txShares);
+                            holdings[key].cost -= costPerShare * Math.abs(txShares);
                         } else {
                             holdings[key].shares += txShares;
                             holdings[key].cost += txAmount;
@@ -461,10 +645,8 @@
                 let totalValue = 0;
                 
                 activePortfolio.forEach(h => {
-                    const symbolUpper = String(h.symbol || '').trim().toUpperCase();
-                    const cleanSymbol = symbolUpper.replace(/\.TW$/, '').replace(/^TPE:/, '');
+                    const cleanSymbol = h.symbol.replace(/\.TW$/, '').replace(/^TPE:/, '');
                     const possibleKeys = [cleanSymbol, `${cleanSymbol}.TW`, `TPE:${cleanSymbol}`, `${cleanSymbol}:TPE`];
-                    
                     let price = null;
                     for (const k of possibleKeys) {
                         if (stockPrices[k] !== undefined && !isNaN(stockPrices[k])) { price = stockPrices[k]; break; }
@@ -473,7 +655,6 @@
                         const fuzzyKey = Object.keys(stockPrices).find(k => k.includes(cleanSymbol));
                         if (fuzzyKey) price = stockPrices[fuzzyKey];
                     }
-                    
                     let currentVal = price ? (h.market === 'TW' ? price * h.shares : price * h.shares * usdRate) : h.cost;
                     h.resolvedPrice = price; h.currentValue = currentVal; totalValue += currentVal;
                 });
@@ -499,18 +680,17 @@
                     percentage: totalExpense ? ((categoryTotals[cat] / totalExpense) * 100).toFixed(1) : 0
                 })).sort((a, b) => b.value - a.value);
 
-                const availableCats = Array.from(new Set(transactions.filter(t => t.type === 'expense').map(t => t.category)));
+                const availableCats = expenseCategories;
+                
                 const trendData = [];
                 const today = new Date();
                 
                 for (let i = 5; i >= 0; i--) {
                     const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
                     const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                    const monthLabel = `${d.getMonth() + 1}月`;
-                    const mTrans = transactions.filter(t => t.date.startsWith(monthStr) && t.type === 'expense');
-                    const point = { month: monthLabel, monthStr, total: 0, categories: {} };
+                    const point = { month: `${d.getMonth() + 1}月`, monthStr, total: 0, categories: {} };
                     
-                    mTrans.forEach(t => {
+                    transactions.filter(t => t.date.startsWith(monthStr) && t.type === 'expense').forEach(t => {
                         point.total += t.amount;
                         point.categories[t.category] = (point.categories[t.category] || 0) + t.amount;
                     });
@@ -518,7 +698,7 @@
                 }
 
                 return { totalExpense, totalIncome, categoriesList, trendData, availableCats };
-            }, [transactions, analysisMonth]);
+            }, [transactions, analysisMonth, expenseCategories]);
 
             const handleAiParse = async () => {
                 if (!aiInputText.trim()) return;
@@ -527,18 +707,11 @@
                     const systemInstruction = `您是一個專業的記帳助理。請將使用者的自然語言輸入解析為 JSON 陣列 (Array of objects)，以支援多筆同時記帳。
 今天日期是: ${getLocalDateString()}。若使用者沒有特別說明日期，預設為今天。
 請判斷使用者的每一筆輸入，並輸出為對應格式的 JSON 物件：
-
-1. 支出或收入: 
-   {"type": "expense" 或 "income", "category": "飲食"|"購物"|"固定支出"|"旅行"|"工作"|"薪資"|"獎金"|"補助"|"自由工作"|"其他", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "現金"|"刷卡"|"先用後付", "date": "YYYY-MM-DD", "note": "擷取補充說明或備註，若無請留空"}
-2. 投資 (買賣股票等): 
-   {"type": "investment", "symbol": "股票代號", "shares": 數字(買入為正數，賣出為負數), "amount": 數字(總金額絕對值), "market": "TW" 或 "US", "date": "YYYY-MM-DD", "note": "備註，若無請留空"}
-3. 轉帳 (例如繳卡費、提款): 
-   {"type": "transfer", "amount": 數字(正數), "fromWallet": "現金"|"刷卡"|"先用後付", "toWallet": "現金"|"刷卡"|"先用後付", "note": "備註，若無請留空", "date": "YYYY-MM-DD"}
-
-判斷提示：
-- 若說「繳卡費」通常歸類為 transfer，fromWallet現金，toWallet刷卡。
-- 若說買賣股票未明確指定，可從代號判斷 (英文字母US，純數字TW)。
-- 請一定要回傳 JSON 陣列。不要包含任何 markdown 標籤或額外文字。`;
+1. 支出: {"type": "expense", "category": "嚴格從[${expenseCategories.join(', ')}]選擇一項", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "帳戶名稱", "date": "YYYY-MM-DD", "note": "備註"}
+2. 收入: {"type": "income", "category": "嚴格從[${incomeCategories.join(', ')}]選擇一項", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "帳戶名稱", "date": "YYYY-MM-DD", "note": "備註"}
+3. 投資: {"type": "investment", "symbol": "股票代號", "shares": 數字(買入正，賣出負), "amount": 數字(總金額絕對值), "market": "TW" 或 "US", "date": "YYYY-MM-DD", "note": "備註"}
+4. 轉帳: {"type": "transfer", "amount": 數字(正數), "fromWallet": "帳戶名稱", "toWallet": "帳戶名稱", "note": "備註", "date": "YYYY-MM-DD"}
+可用帳戶名單：${activeWallets.join(', ')}。若使用者未指定，請預設使用 "現金"。請務必回傳 JSON 陣列。不要包含任何 markdown。分類(category)絕對不能自行創造，必須完全吻合給定的列表。`;
 
                     const responseText = await callGeminiAPI(activeApiKey, aiInputText, systemInstruction, true);
                     let parsedData = JSON.parse(responseText.trim());
@@ -562,17 +735,17 @@
                             const symbol = (data.symbol || '').toUpperCase();
                             newRecords.push({
                                 ...baseRecord, category: '投資', itemName: `${market === 'TW' ? '台股' : '美股'} ${symbol} (${isSell ? '賣出' : '買入'})`,
-                                wallet: '現金', market: market, symbol: symbol, shares: parseFloat(data.shares) || 0, note: data.note || ''
+                                wallet: data.wallet || activeWallets[0] || '現金', market: market, symbol: symbol, shares: parseFloat(data.shares) || 0, note: data.note || ''
                             });
                         } else if (data.type === 'transfer') {
                             newRecords.push({
-                                ...baseRecord, fromWallet: data.fromWallet || '現金', toWallet: data.toWallet || '刷卡',
-                                category: data.fromWallet || '現金', wallet: data.toWallet || '刷卡', itemName: '轉帳', note: data.note || ''
+                                ...baseRecord, fromWallet: data.fromWallet || '現金', toWallet: data.toWallet || '信用卡',
+                                category: data.fromWallet || '現金', wallet: data.toWallet || '信用卡', itemName: '轉帳', note: data.note || ''
                             });
                         } else {
                             newRecords.push({
                                 ...baseRecord, category: data.category || '其他', itemName: data.itemName || '未命名',
-                                wallet: data.wallet || '現金', note: data.note || '', market: '', symbol: '', shares: ''
+                                wallet: data.wallet || activeWallets[0] || '現金', note: data.note || '', market: '', symbol: '', shares: ''
                             });
                         }
                     });
@@ -582,25 +755,63 @@
                         syncWithBackend({ action: 'add', record: record });
                         if (record.type === 'investment' && record.shares > 0) syncWithBackend({ action: 'addSymbol', symbol: record.symbol, market: record.market });
                     });
-                    
                     setAiInputText('');
                 } catch (error) {
                     if(error.needRelogin) handleLogout();
                     alert(error.message || "AI 解析失敗，請檢查格式或換個說法試試！");
-                    console.error(error);
                 } finally {
                     setIsAiParsing(false);
+                }
+            };
+
+            const handleTaishinCardAdvice = async () => {
+                setIsTaishinAdvising(true);
+                setTaishinAdvice('');
+                try {
+                    const todayStr = getLocalDateString();
+                    const todayCreditTx = transactions.filter(t => t.date === todayStr && t.type === 'expense' && accounts.find(a => a.name === t.wallet && a.type === '信用卡'));
+                    
+                    if(todayCreditTx.length === 0) {
+                        setTaishinAdvice("今日尚無信用卡消費紀錄，無法提供分析建議。");
+                        setIsTaishinAdvising(false);
+                        return;
+                    }
+
+                    const txListStr = todayCreditTx.map(t => `- ${t.itemName} (${t.category}): ${t.amount}元`).join('\n');
+                    const systemInstruction = `您是一位專業的信用卡理財顧問。請根據用戶提供的今日信用卡消費明細與台新卡權益規則，判斷並給出最適合的切換建議。回覆請簡潔明確，指出該切換至哪一個方案，以及原因。不需列出計算細節，給出最終結論即可。請使用繁體中文，且不要使用任何表情符號。`;
+                    
+                    const prompt = `請根據以下今日的刷卡消費紀錄，建議我應該將台新信用卡（玫瑰卡/太陽卡）的權益切換到哪一個方案最划算。
+消費紀錄：
+${txListStr}
+
+台新卡權益方案如下：
+1. Pay著刷（最高 3.8%）：台新 Pay(新光三越,7-11,全家,康是美,IKEA等)、海外交易免1.5%(韓國GS25等)、LINE Pay指定權益。
+2. 天天刷（最高 3.3%）：超商量販(7-11,全家,家樂福,唐吉訶德)、通勤交通(高鐵,台鐵,Uber,台灣大車隊)、加油充電、藥妝藥局(寶雅,屈臣氏)。
+3. 大筆刷（最高 3.3%）：指定百貨(新光三越,遠百,SOGO,101)、指定Outlet、居家裝修(IKEA,特力屋)、時尚品味(UNIQLO,ZARA)。
+4. 好饗刷（最高 3.3%）：餐飲外送(全台餐飲,UberEats,Foodpanda)、購票娛樂(拓元,KKTIX)、指定KTV、指定飯店。
+5. 數趣刷（最高 3.3%）：網購平台(蝦皮,momo,PChome,淘寶)、線上課程、遊戲影音(Steam,Netflix,Disney+)、AI服務(ChatGPT)。
+6. 玩旅刷（最高 3.3%）：海外實體與線上、航空公司、海外交通(Uber,Grab,SUICA)、訂房旅行社(Klook,Agoda)。
+7. 假日刷：國內節假日不限通路2%。
+
+請給出您的分析與切換建議。`;
+
+                    const advice = await callGeminiAPI(activeApiKey, prompt, systemInstruction);
+                    setTaishinAdvice(advice);
+                } catch (error) {
+                    if(error.needRelogin) handleLogout();
+                    setTaishinAdvice(error.message || "目前無法取得分析建議，請稍後再試。");
+                } finally {
+                    setIsTaishinAdvising(false);
                 }
             };
 
             const handleGenerateAdvice = async () => {
                 setIsAiAdvising(true);
                 try {
-                    const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
+                    const totalWalletBalance = Object.values(accountBalances).reduce((a, b) => a + b.currentBalance, 0);
                     const topHoldings = portfolio.map(h => h.symbol).slice(0, 3).join(', ');
                     const systemInstruction = `您是一位專業、客觀的財務顧問。請以簡潔、專業的口吻，針對用戶本月的收支狀況以及目前的資產配置進行精要點評，並給出具體的理財建議。請控制在 4 到 5 句話以內。使用繁體中文，可適度使用粗體（**粗體**）強調數據或重點。請絕對不要使用任何表情符號。`;
                     const prompt = `本月收支狀況 (${analysisMonth})：\n總收入：${analysisData.totalIncome}\n總支出：${analysisData.totalExpense}\n主要支出分類：${analysisData.categoriesList.slice(0,3).map(c => `${c.name}(${c.value})`).join(', ')}\n\n目前資產配置狀況：\n現金與帳戶總計：${totalWalletBalance}\n股票投資總值：${Math.round(totalStockValue)}\n主要持股：${topHoldings || '無'}`;
-
                     const advice = await callGeminiAPI(activeApiKey, prompt, systemInstruction);
                     setAiAdvice(advice);
                 } catch (error) {
@@ -620,7 +831,7 @@
                 if (recordForm.type === 'investment') {
                     if (!recordForm.symbol || !recordForm.shares) return;
                     const absoluteShares = Math.abs(parseFloat(recordForm.shares));
-                    recordData = { ...recordData, market: recordForm.market, symbol: recordForm.symbol.toUpperCase(), shares: recordForm.isSell ? -absoluteShares : absoluteShares, wallet: '現金', category: '投資', itemName: `${recordForm.market === 'TW' ? '台股' : '美股'} ${recordForm.symbol.toUpperCase()} (${recordForm.isSell ? '賣出' : '買入'})` };
+                    recordData = { ...recordData, market: recordForm.market, symbol: recordForm.symbol.toUpperCase(), shares: recordForm.isSell ? -absoluteShares : absoluteShares, wallet: recordForm.wallet || activeWallets[0], category: '投資', itemName: `${recordForm.market === 'TW' ? '台股' : '美股'} ${recordForm.symbol.toUpperCase()} (${recordForm.isSell ? '賣出' : '買入'})` };
                 } else {
                     if (!recordForm.itemName) return;
                     recordData = { ...recordData, category: recordForm.category === '其他' && recordForm.customCategory ? recordForm.customCategory : recordForm.category, itemName: recordForm.itemName, wallet: recordForm.wallet, market: '', symbol: '', shares: '' };
@@ -644,11 +855,6 @@
                 setEditingRecordId(record.id);
             };
 
-            const handleCancelEdit = () => {
-                setEditingRecordId(null);
-                setInlineEditForm(null);
-            };
-
             const handleSaveInlineEdit = () => {
                 if (!inlineEditForm.amount) return;
                 let updatedRecord = { id: inlineEditForm.id, date: inlineEditForm.date, type: inlineEditForm.type, amount: parseFloat(inlineEditForm.amount), note: inlineEditForm.note, user: currentUser };
@@ -656,7 +862,7 @@
                 if (inlineEditForm.type === 'investment') {
                     if (!inlineEditForm.symbol || !inlineEditForm.shares) return;
                     const absoluteShares = Math.abs(parseFloat(inlineEditForm.shares));
-                    updatedRecord = { ...updatedRecord, market: inlineEditForm.market, symbol: inlineEditForm.symbol.toUpperCase(), shares: inlineEditForm.isSell ? -absoluteShares : absoluteShares, wallet: '現金', category: '投資', itemName: `${inlineEditForm.market === 'TW' ? '台股' : '美股'} ${inlineEditForm.symbol.toUpperCase()} (${inlineEditForm.isSell ? '賣出' : '買入'})` };
+                    updatedRecord = { ...updatedRecord, market: inlineEditForm.market, symbol: inlineEditForm.symbol.toUpperCase(), shares: inlineEditForm.isSell ? -absoluteShares : absoluteShares, wallet: inlineEditForm.wallet, category: '投資', itemName: `${inlineEditForm.market === 'TW' ? '台股' : '美股'} ${inlineEditForm.symbol.toUpperCase()} (${inlineEditForm.isSell ? '賣出' : '買入'})` };
                 } else if (inlineEditForm.type === 'transfer') {
                     updatedRecord = { ...updatedRecord, fromWallet: inlineEditForm.fromWallet, toWallet: inlineEditForm.toWallet, category: inlineEditForm.fromWallet, wallet: inlineEditForm.toWallet, itemName: '轉帳' };
                 } else {
@@ -674,14 +880,6 @@
             const handleDeleteRecord = (id) => {
                 updateTransactionsState(transactions.filter(t => t.id.toString() !== id.toString()));
                 syncWithBackend({ action: 'delete', id: id });
-            };
-
-            const changeRecordMonth = (offset) => {
-                const [year, month] = recordMonth.split('-').map(Number);
-                const newDate = new Date(year, month - 1 + offset, 1);
-                const y = newDate.getFullYear();
-                const m = String(newDate.getMonth() + 1).padStart(2, '0');
-                setRecordMonth(`${y}-${m}`);
             };
 
             const handleAdjustBalanceConfirm = (wallet, currentBalance) => {
@@ -703,69 +901,13 @@
                 setTransferForm(prev => ({ ...prev, amount: '', note: '' }));
             };
 
-            if (!ENCRYPTED_API_KEY) {
-                return (
-                    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-                        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
-                            <h2 className="text-2xl font-bold text-gray-800 mb-2">系統初始設定</h2>
-                            <p className="text-sm text-gray-500 mb-6 leading-relaxed">偵測到尚未設定加密的 API 金鑰。<br/>請產生加密字串並貼回程式碼中以啟用系統。</p>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">1. 填入真實的 Gemini API 金鑰</label>
-                                    <input type="password" value={rawApiKey} onChange={e => setRawApiKey(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="AIzaSy..." />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">2. 設定自訂密碼</label>
-                                    <input type="text" value={setupPassword} onChange={e => setSetupPassword(e.target.value)} className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="您的自訂密碼" />
-                                </div>
-                                <button onClick={handleGenerateEncryptedKey} className="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-3 rounded-xl transition-colors">產生加密字串</button>
-                                {generatedEncryptedKey && (
-                                    <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
-                                        <p className="text-sm font-medium text-blue-800 mb-2">3. 請將下方字串複製並覆蓋程式碼中的 <code>ENCRYPTED_API_KEY</code> 變數，然後重整網頁。</p>
-                                        <textarea readOnly value={generatedEncryptedKey} className="w-full p-2 text-xs font-mono bg-white border border-blue-200 rounded outline-none break-all" rows="4" onClick={e => e.target.select()} />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (isInitialLoading) {
-                return (
-                    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500 gap-4">
-                        <Icon name="loader" size={32} className="animate-spin text-blue-500" />
-                        <p className="font-medium text-lg text-gray-700">正在解鎖系統與載入資料...</p>
-                    </div>
-                );
-            }
-
-            if (!isAuthenticated) {
-                return (
-                    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-                        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
-                            <div className="flex justify-center mb-6">
-                                <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center text-white text-3xl font-bold">帳</div>
-                            </div>
-                            <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">家庭記帳本登入</h2>
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <div>
-                                    <input type="password" value={systemPassword} onChange={e => setSystemPassword(e.target.value)} className="w-full p-3.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center tracking-widest font-mono" placeholder="請輸入系統密碼" autoFocus />
-                                </div>
-                                {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
-                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3.5 rounded-xl transition-colors shadow-sm">解鎖系統</button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            const Checkbox = ({ label, checked, onChange, isParent = false }) => (
-                <label className={`flex items-center gap-2 cursor-pointer select-none ${isParent ? 'font-bold text-gray-800' : 'text-gray-600 hover:text-blue-600'}`}>
-                    <input type="checkbox" checked={checked} onChange={onChange} className="custom-checkbox" />
-                    {label}
-                </label>
-            );
+            const changeRecordMonth = (offset) => {
+                const [year, month] = recordMonth.split('-').map(Number);
+                const newDate = new Date(year, month - 1 + offset, 1);
+                const y = newDate.getFullYear();
+                const m = String(newDate.getMonth() + 1).padStart(2, '0');
+                setRecordMonth(`${y}-${m}`);
+            };
 
             const renderInlineEditContent = () => (
                 <div className="space-y-3 w-full animate-in fade-in">
@@ -778,7 +920,6 @@
                         </select>
                         <input type="date" value={inlineEditForm.date} onChange={e => setInlineEditForm({...inlineEditForm, date: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
                     </div>
-
                     {inlineEditForm.type === 'investment' && (
                         <div className="flex flex-wrap gap-2">
                             <select value={inlineEditForm.market} onChange={e => setInlineEditForm({...inlineEditForm, market: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
@@ -793,7 +934,6 @@
                             <input type="number" step="0.00001" min="0" value={inlineEditForm.shares} onChange={e => setInlineEditForm({...inlineEditForm, shares: e.target.value})} placeholder="股數" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-24 outline-none focus:ring-2 focus:ring-blue-400" />
                         </div>
                     )}
-
                     {(inlineEditForm.type === 'expense' || inlineEditForm.type === 'income') && (
                         <div className="flex flex-wrap gap-2">
                             <select value={inlineEditForm.category} onChange={e => setInlineEditForm({...inlineEditForm, category: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
@@ -805,31 +945,29 @@
                             <input type="text" value={inlineEditForm.itemName} onChange={e => setInlineEditForm({...inlineEditForm, itemName: e.target.value})} placeholder="項目名稱" className="flex-1 min-w-[120px] border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
                         </div>
                     )}
-
-                    {inlineEditForm.type === 'transfer' && (
-                        <div className="flex flex-wrap gap-2 items-center">
-                            <select value={inlineEditForm.fromWallet} onChange={e => setInlineEditForm({...inlineEditForm, fromWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
-                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
-                            </select>
-                            <Icon name="arrow-right" size={14} className="text-gray-400" />
-                            <select value={inlineEditForm.toWallet} onChange={e => setInlineEditForm({...inlineEditForm, toWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
-                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
-                            </select>
-                        </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-2">
-                        <input type="number" value={inlineEditForm.amount} onChange={e => setInlineEditForm({...inlineEditForm, amount: e.target.value})} placeholder="金額" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-28 outline-none focus:ring-2 focus:ring-blue-400" />
-                        {inlineEditForm.type !== 'transfer' && inlineEditForm.type !== 'investment' && (
+                    <div className="flex flex-wrap gap-2 items-center">
+                        {inlineEditForm.type === 'investment' ? (
+                            <div className="border border-gray-200 p-1.5 rounded text-sm bg-gray-50 text-gray-500 w-24 flex items-center justify-center">現金</div>
+                        ) : inlineEditForm.type !== 'transfer' ? (
                             <select value={inlineEditForm.wallet} onChange={e => setInlineEditForm({...inlineEditForm, wallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
-                                {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
                             </select>
+                        ) : (
+                            <React.Fragment>
+                                <select value={inlineEditForm.fromWallet} onChange={e => setInlineEditForm({...inlineEditForm, fromWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                    {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                </select>
+                                <Icon name="arrow-right" size={14} className="text-gray-400" />
+                                <select value={inlineEditForm.toWallet} onChange={e => setInlineEditForm({...inlineEditForm, toWallet: e.target.value})} className="border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400">
+                                    {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                </select>
+                            </React.Fragment>
                         )}
+                        <input type="number" value={inlineEditForm.amount} onChange={e => setInlineEditForm({...inlineEditForm, amount: e.target.value})} placeholder="金額" className="border border-blue-200 p-1.5 rounded text-sm bg-white w-28 outline-none focus:ring-2 focus:ring-blue-400" />
                         <input type="text" value={inlineEditForm.note} onChange={e => setInlineEditForm({...inlineEditForm, note: e.target.value})} placeholder="備註(選填)" className="flex-1 min-w-[100px] border border-blue-200 p-1.5 rounded text-sm bg-white outline-none focus:ring-2 focus:ring-blue-400" />
                     </div>
-
                     <div className="flex gap-2 pt-2 mt-1">
-                        <button onClick={handleCancelEdit} className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors">取消</button>
+                        <button onClick={() => setEditingRecordId(null)} className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors">取消</button>
                         <button onClick={handleSaveInlineEdit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"><Icon name="check" size={16} /> 儲存修改</button>
                     </div>
                 </div>
@@ -837,9 +975,7 @@
 
             const renderRecordView = () => {
                 const todayStr = getLocalDateString();
-                const currentLocalMonth = getLocalMonthString();
-                const isViewingCurrentMonth = recordMonth === currentLocalMonth;
-                
+                const isViewingCurrentMonth = recordMonth === getLocalMonthString();
                 const filteredTodayRecords = displayTransactions.filter(t => t.date === todayStr).filter(filterRecord);
                 const filteredMonthRecords = (isViewingCurrentMonth ? displayTransactions.filter(t => t.date !== todayStr) : displayTransactions).filter(filterRecord);
 
@@ -854,41 +990,26 @@
                     <div className="p-4 space-y-6">
                         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row gap-2 items-center">
                             <div className="relative flex-1 w-full">
-                                <input 
-                                    type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
-                                    placeholder="語音或輸入自動記帳：買1股QQQ 18000" className="w-full p-2.5 pr-10 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing}
-                                />
-                                <button 
-                                    onClick={toggleVoiceInput} type="button" title={isListening ? "停止錄音" : "語音輸入"}
-                                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`}
-                                >
-                                    <Icon name="mic" size={16} />
-                                </button>
+                                <input type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()} placeholder="語音或輸入自動記帳：買1股QQQ 18000" className="w-full p-2.5 pr-10 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing} />
+                                <button onClick={toggleVoiceInput} type="button" className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600'}`}><Icon name="mic" size={16} /></button>
                             </div>
-                            <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50">
-                                {isAiParsing ? <Icon name="loader" size={16} className="animate-spin" /> : <Icon name="zap" size={16} />}
-                                {isAiParsing ? '處理中...' : '直接記帳'}
+                            <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap">
+                                {isAiParsing ? <><Icon name="loader" size={16} className="animate-spin" /> 處理中...</> : <><Icon name="zap" size={16} /> 直接記帳</>}
                             </button>
                         </div>
 
                         <div>
-                            <button
-                                type="button"
-                                onClick={() => setIsManualFormOpen(!isManualFormOpen)}
-                                className="w-full flex items-center justify-between bg-white p-3.5 rounded-xl shadow-sm border border-gray-100 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <Icon name="edit-3" size={18} className="text-gray-400" /> 手動記帳
-                                </div>
+                            <button onClick={() => setIsManualFormOpen(!isManualFormOpen)} className="w-full flex items-center justify-between bg-white p-3.5 rounded-xl shadow-sm border border-gray-100 text-gray-700 font-medium hover:bg-gray-50 transition-colors">
+                                <div className="flex items-center gap-2"><Icon name="edit-3" size={18} className="text-gray-400" /> 手動記帳</div>
                                 <Icon name={isManualFormOpen ? "chevron-up" : "chevron-down"} size={18} className="text-gray-400" />
                             </button>
                             
                             {isManualFormOpen && (
-                                <div className="mt-3 bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
+                                <div className="mt-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
                                     <div className="flex gap-2 mb-4">
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>支出</button>
                                         <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '', wallet: '現金' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
                                     </div>
                                     <form onSubmit={handleAddRecord} className="space-y-4">
                                         <div>
@@ -938,8 +1059,8 @@
                                                 </div>
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
-                                                    <div className="p-3 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
-                                                        <span>現金</span><span className="text-sm font-medium">餘額: ${walletBalances['現金'].toLocaleString()}</span>
+                                                    <div className="p-2.5 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
+                                                        <span>現金</span><span className="text-sm font-medium">餘額: ${accountBalances['現金'] ? accountBalances['現金'].currentBalance.toLocaleString() : 0}</span>
                                                     </div>
                                                 </div>
                                             </React.Fragment>
@@ -967,13 +1088,9 @@
                                                 </div>
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 mb-1">錢包 (支付/入帳方式)</label>
-                                                    <div className="flex gap-2">
-                                                        {wallets.map(w => (
-                                                            <button key={w} type="button" onClick={() => setRecordForm({...recordForm, wallet: w})} className={`flex-1 py-1.5 border rounded-lg transition-colors flex flex-col items-center justify-center ${recordForm.wallet === w ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-gray-600'}`}>
-                                                                <span className="text-sm font-medium">{w}</span><span className="text-[10px] mt-0.5 opacity-70">${walletBalances[w].toLocaleString()}</span>
-                                                            </button>
-                                                        ))}
-                                                    </div>
+                                                    <select value={recordForm.wallet} onChange={e => setRecordForm({...recordForm, wallet: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                        {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                                    </select>
                                                 </div>
                                             </React.Fragment>
                                         )}
@@ -989,23 +1106,14 @@
                             )}
                         </div>
 
-                        <div className="flex items-center justify-between mt-8 border-b pb-4">
-                            <div className="flex items-center gap-3">
-                                <h3 className="text-lg font-bold text-gray-800 tracking-wide">歷史紀錄</h3>
-                                <button onClick={() => setIsFilterOpen(!isFilterOpen)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors ${isFilterOpen ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                                    <Icon name="filter" size={14} /> 篩選
-                                </button>
-                            </div>
-                            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 p-1 shadow-sm">
-                                <button onClick={() => changeRecordMonth(-1)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="上個月"><Icon name="chevron-left" size={16} /></button>
-                                <span className="text-sm font-medium text-gray-700 w-20 text-center">{recordMonth.replace('-', '年')}月</span>
-                                <button onClick={() => changeRecordMonth(1)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="下個月"><Icon name="chevron-right" size={16} /></button>
-                            </div>
+                        <div className="flex items-center justify-between mt-8 border-b pb-2">
+                            <h3 className="text-lg font-bold text-gray-800 tracking-wide">歷史紀錄</h3>
+                            <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-sm text-gray-500 hover:text-blue-600"><Icon name="filter" size={14} /> 篩選</button>
                         </div>
 
                         {/* 篩選器面板 */}
                         {isFilterOpen && (
-                            <div className="bg-white p-4 md:p-5 rounded-xl border border-gray-200 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2">
+                            <div className="bg-white p-4 md:p-5 rounded-xl border border-gray-200 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2 mb-6">
                                 <div className="space-y-2">
                                     <Checkbox label="支出" checked={filters.expense} onChange={() => handleParentToggle('expense', allExpenseCats)} isParent />
                                     <div className="flex flex-wrap gap-x-4 gap-y-2 pl-6">
@@ -1035,129 +1143,106 @@
 
                         {isViewingCurrentMonth && (
                             <div className="space-y-3">
-                                <h4 className="text-sm font-semibold text-gray-500 mb-2">本日記帳</h4>
-                                {isSyncing && transactions.length === 0 ? (
-                                    <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
-                                ) : filteredTodayRecords.length > 0 ? filteredTodayRecords.map(record => {
-                                    const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
-                                    return editingRecordId === record.id ? (
+                                <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-sm font-semibold text-gray-500">本日記帳</h4>
+                                    <button onClick={handleTaishinCardAdvice} disabled={isTaishinAdvising} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-100 flex items-center gap-1">
+                                        {isTaishinAdvising ? <Icon name="loader" size={12} className="animate-spin"/> : <Icon name="credit-card" size={12}/>}
+                                        台新卡權益AI分析
+                                    </button>
+                                </div>
+                                
+                                {taishinAdvice && (
+                                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-sm text-indigo-900 markdown-body relative">
+                                        <button onClick={() => setTaishinAdvice('')} className="absolute top-2 right-2 text-indigo-400 hover:text-indigo-800"><Icon name="x" size={16}/></button>
+                                        {renderMarkdown(taishinAdvice)}
+                                    </div>
+                                )}
+
+                                {filteredTodayRecords.length > 0 ? filteredTodayRecords.map(record => {
+                                     const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
+                                     return editingRecordId === record.id ? (
                                         <div key={record.id} className="bg-blue-50/40 p-4 rounded-xl shadow-sm border border-blue-200">
                                             {renderInlineEditContent()}
                                         </div>
                                     ) : (
-                                        <div key={record.id} className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center gap-2 md:gap-4 hover:border-blue-200 transition-colors">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
-                                                        {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
-                                                    </span>
-                                                    <span className="text-xs text-gray-500 hidden sm:inline truncate">• {record.user}</span>
-                                                </div>
-                                                <div className="font-medium text-gray-900 truncate text-sm md:text-base">
-                                                    {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
-                                                    {record.type !== 'transfer' && <span className="ml-2 text-xs md:text-sm text-gray-500 font-normal">({record.category})</span>}
-                                                </div>
-                                                <div className="text-[10px] md:text-xs text-gray-400 mt-0.5 truncate flex items-center gap-2">
-                                                    {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
-                                                    {record.type !== 'transfer' && <span>錢包: {record.wallet}</span>}
-                                                    {record.note && <span>• 備註: {record.note}</span>}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2 shrink-0">
-                                                <span className={`font-bold text-sm md:text-base ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
-                                                    {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
-                                                </span>
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => handleEditRecord(record)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="編輯"><Icon name="edit-2" size={14} /></button>
-                                                    <button onClick={() => handleDeleteRecord(record.id)} className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors" title="刪除"><Icon name="trash-2" size={14} /></button>
-                                                </div>
+                                     <div key={record.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center text-sm group transition-colors hover:border-blue-200">
+                                        <div className="flex-1 min-w-0 pr-2">
+                                            <span className="font-medium text-gray-800 truncate block">{record.itemName}</span>
+                                            <div className="text-xs text-gray-400 truncate mt-0.5">
+                                                {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
+                                                {record.type !== 'transfer' && <span className="mr-1">{record.wallet} • {record.category}</span>}
+                                                {record.type === 'transfer' && <span className="mr-1">{record.fromWallet} ➔ {record.toWallet}</span>}
+                                                {record.note && <span>• {record.note}</span>}
                                             </div>
                                         </div>
-                                    );
-                                }) : !isSyncing && <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
+                                        <div className="text-right shrink-0">
+                                            <div className={`font-bold ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>{isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}</div>
+                                            <div className="flex gap-2 justify-end mt-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => handleEditRecord(record)} className="text-gray-400 hover:text-blue-600"><Icon name="edit-2" size={14} /></button>
+                                                <button onClick={() => handleDeleteRecord(record.id)} className="text-gray-400 hover:text-rose-600"><Icon name="trash-2" size={14} /></button>
+                                            </div>
+                                        </div>
+                                     </div>
+                                    )
+                                }) : <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
                             </div>
                         )}
 
                         <div className="space-y-3 pt-4">
                             <h4 className="text-sm font-semibold text-gray-500 mb-2">{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</h4>
-                            {isSyncing && transactions.length === 0 ? (
-                                <div className="flex items-center gap-2 text-gray-400 pl-1"><Icon name="loader" size={16} className="animate-spin" /> <span className="text-sm">載入中...</span></div>
-                            ) : filteredMonthRecords.length > 0 ? (
+                            {filteredMonthRecords.length > 0 ? (
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                    <table className="w-full text-left border-collapse table-fixed sm:table-auto">
-                                        <thead>
-                                            <tr className="bg-gray-50 text-gray-500 text-[10px] sm:text-xs tracking-wider border-b border-gray-200">
-                                                <th className="py-2 px-1 sm:px-3 font-medium w-10 sm:w-16">日期</th>
-                                                <th className="py-2 px-1 sm:px-3 font-medium w-10 sm:w-16 text-center sm:text-left">分類</th>
-                                                <th className="py-2 px-1 sm:px-3 font-medium w-auto">項目名稱</th>
-                                                <th className="hidden sm:table-cell py-2 px-3 font-medium w-24">帳戶</th>
-                                                <th className="py-2 px-1 sm:px-3 font-medium text-right w-16 sm:w-24">金額</th>
-                                                <th className="py-2 px-1 sm:px-3 font-medium text-center w-12 sm:w-20">操作</th>
-                                            </tr>
-                                        </thead>
+                                    <table className="w-full text-left text-sm table-fixed sm:table-auto">
                                         <tbody className="divide-y divide-gray-100">
                                             {filteredMonthRecords.map(record => {
                                                 const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
                                                 return editingRecordId === record.id ? (
                                                     <tr key={record.id} className="bg-blue-50/40 border-b border-blue-100">
-                                                        <td colSpan="6" className="p-2 sm:p-3">
+                                                        <td colSpan="4" className="p-3">
                                                             {renderInlineEditContent()}
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    <tr key={record.id} className="hover:bg-gray-50 transition-colors group">
-                                                        <td className="py-2 px-1 sm:px-3 text-gray-500 text-[10px] sm:text-xs whitespace-nowrap overflow-hidden">{record.date.substring(5)}</td>
-                                                        <td className="py-2 px-1 sm:px-3 text-center sm:text-left">
-                                                            <span className={`text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${record.type === 'expense' ? 'bg-rose-100 text-rose-700' : record.type === 'income' ? 'bg-emerald-100 text-emerald-700' : record.type === 'investment' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>
-                                                                {record.type === 'expense' ? '支出' : record.type === 'income' ? '收入' : record.type === 'investment' ? '投資' : '轉帳'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="py-2 px-1 sm:px-3 overflow-hidden">
-                                                            <div className="font-medium text-gray-800 text-[11px] sm:text-sm truncate">
-                                                                {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
-                                                            </div>
-                                                            <div className="text-[9px] sm:text-[10px] text-gray-400 truncate mt-0.5">
-                                                                <span className="sm:hidden mr-1 text-gray-500">{record.type !== 'transfer' ? `[${record.wallet}]` : ''}</span>
-                                                                {(record.category && record.type !== 'transfer' && record.type !== 'investment') && <span>{record.category} {record.note && `• ${record.note}`}</span>}
-                                                                {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 {record.note && `• ${record.note}`}</span>}
-                                                                {record.type === 'transfer' && record.note && <span>{record.note}</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td className="hidden sm:table-cell py-2 px-3 text-gray-600 text-[10px] sm:text-xs whitespace-nowrap">
-                                                            {record.type !== 'transfer' ? record.wallet : '-'}
-                                                        </td>
-                                                        <td className={`py-2 px-1 sm:px-3 font-semibold text-right text-[11px] sm:text-sm whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>
-                                                            {isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}
-                                                        </td>
-                                                        <td className="py-2 px-1 sm:px-3 text-center">
-                                                            <div className="flex justify-center gap-0.5 sm:gap-1 sm:opacity-40 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => handleEditRecord(record)} className="p-1 sm:p-1.5 text-gray-500 hover:text-blue-600 bg-white hover:bg-blue-50 rounded shadow-sm border border-gray-200 transition-colors" title="編輯"><Icon name="edit-2" size={12} className="sm:w-3.5 sm:h-3.5" /></button>
-                                                                <button onClick={() => handleDeleteRecord(record.id)} className="p-1 sm:p-1.5 text-gray-500 hover:text-rose-600 bg-white hover:bg-rose-50 rounded shadow-sm border border-gray-200 transition-colors" title="刪除"><Icon name="trash-2" size={12} className="sm:w-3.5 sm:h-3.5" /></button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
+                                                <tr key={record.id} className="hover:bg-gray-50 group">
+                                                    <td className="py-2 px-2 sm:px-3 text-gray-500 w-12 sm:w-16 whitespace-nowrap">{record.date.substring(5)}</td>
+                                                    <td className="py-2 px-2 sm:px-3 overflow-hidden">
+                                                        <div className="font-medium text-gray-800 truncate text-[12px] sm:text-sm">
+                                                            {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                                                        </div>
+                                                        <div className="text-[10px] text-gray-400 truncate mt-0.5">
+                                                            {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
+                                                            {record.type !== 'transfer' && <span className="mr-1">[{record.wallet}] {record.category}</span>}
+                                                            {record.note && <span>• {record.note}</span>}
+                                                        </div>
+                                                    </td>
+                                                    <td className={`py-2 px-2 sm:px-3 text-right font-bold w-16 sm:w-24 whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>{isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}</td>
+                                                    <td className="py-2 px-1 text-center w-10 sm:w-16">
+                                                        <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => handleEditRecord(record)} className="p-1 text-gray-400 hover:text-blue-600 rounded bg-white shadow-sm border"><Icon name="edit-2" size={12} /></button>
+                                                            <button onClick={() => handleDeleteRecord(record.id)} className="p-1 text-gray-400 hover:text-rose-600 rounded bg-white shadow-sm border"><Icon name="trash-2" size={12} /></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                )
                                             })}
                                         </tbody>
                                     </table>
                                 </div>
-                            ) : !isSyncing && <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
+                            ) : <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
                         </div>
                     </div>
                 );
             };
 
             const renderWalletView = () => {
-                const totalWalletBalance = Object.values(walletBalances).reduce((a, b) => a + b, 0);
-                const grandTotalAssets = totalWalletBalance + totalStockValue;
-
+                const totalAssets = Object.values(accountBalances).reduce((a, b) => a + b.currentBalance, 0) + totalStockValue;
                 return (
                     <div className="p-4 space-y-6">
                         <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md text-white">
                             <div className="flex justify-between items-start">
                                 <div>
                                     <h3 className="text-blue-100 text-sm font-medium mb-1">總資產 (TWD)</h3>
-                                    <div className="text-4xl font-bold">${Math.round(grandTotalAssets).toLocaleString()}</div>
+                                    <div className="text-4xl font-bold">${Math.round(totalAssets).toLocaleString()}</div>
                                 </div>
                                 <button onClick={() => fetchCloudData(systemPassword)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors flex items-center gap-2 text-sm" title="取得最新股價">
                                     <Icon name="refresh-cw" size={16} /> <span className="hidden md:inline">重整資料</span>
@@ -1166,77 +1251,64 @@
                         </div>
 
                         <div className="space-y-3">
-                            <h3 className="text-lg font-semibold text-gray-800">所有錢包</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {wallets.map(w => {
-                                    const isCredit = w === '刷卡' || w === '先用後付';
-                                    const balance = walletBalances[w];
-                                    const limit = creditLimits[w] || 0;
-                                    
-                                    return (
-                                        <div key={w} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
-                                            <div className="flex justify-between items-center w-full">
-                                                <span className="font-medium text-gray-700 flex items-center gap-1">
-                                                    {w}
-                                                    {isCredit && editingLimitWallet !== w && adjustingWallet !== w && (
-                                                        <button onClick={() => { setEditingLimitWallet(w); setEditLimitAmount(limit.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="設定最高額度">
-                                                            <Icon name="settings" size={12} />
-                                                        </button>
-                                                    )}
-                                                </span>
-                                                {adjustingWallet !== w && editingLimitWallet !== w && (
-                                                    <button onClick={() => { setAdjustingWallet(w); setAdjustWalletAmount(balance.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="調整餘額">
-                                                        <Icon name="edit-2" size={14} />
+                            <h3 className="text-lg font-semibold text-gray-800">所有帳戶</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                {Object.values(accountBalances).map(acc => (
+                                    <div key={acc.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
+                                        <div className="flex justify-between items-center w-full">
+                                            <span className="font-medium text-gray-700 text-sm flex items-center gap-1">
+                                                {acc.name} <span className="text-xs text-gray-400">({acc.type})</span>
+                                                {(acc.type === '信用卡' || acc.type === '先用後付') && editingLimitWallet !== acc.name && adjustingWallet !== acc.name && (
+                                                    <button onClick={() => { setEditingLimitWallet(acc.name); setEditLimitAmount(acc.limit.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="設定最高額度">
+                                                        <Icon name="settings" size={12} />
                                                     </button>
                                                 )}
-                                            </div>
-                                            
-                                            {editingLimitWallet === w ? (
-                                                <div className="flex items-center gap-1 mt-1">
-                                                    <input type="number" value={editLimitAmount} onChange={e => setEditLimitAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus placeholder="最高額度" />
-                                                    <button onClick={() => {
-                                                        const val = parseFloat(editLimitAmount) || 0;
-                                                        const newLimits = {...creditLimits, [w]: val};
-                                                        setCreditLimits(newLimits);
-                                                        try { localStorage.setItem('creditLimits', JSON.stringify(newLimits)); } catch(e){}
-                                                        setEditingLimitWallet(null);
-                                                    }} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
-                                                </div>
-                                            ) : adjustingWallet === w ? (
-                                                <div className="flex items-center gap-1 mt-1">
-                                                    <input type="number" value={adjustWalletAmount} onChange={e => setAdjustWalletAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus />
-                                                    <button onClick={() => handleAdjustBalanceConfirm(w, balance)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
-                                                    <button onClick={() => setAdjustingWallet(null)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"><Icon name="x" size={16}/></button>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col gap-0.5 mt-1">
-                                                    <span className={`text-xl font-bold ${balance < 0 ? 'text-rose-500' : 'text-gray-900'}`}>
-                                                        ${balance.toLocaleString()}
-                                                    </span>
-                                                    {isCredit && (
-                                                        <span className="text-[11px] text-gray-500 flex items-center gap-1">
-                                                            可用額度: ${(limit + balance).toLocaleString()}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                            </span>
+                                            {adjustingWallet !== acc.name && editingLimitWallet !== acc.name && (
+                                                <button onClick={() => { setAdjustingWallet(acc.name); setAdjustWalletAmount(acc.currentBalance.toString()); }} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="調整餘額">
+                                                    <Icon name="edit-2" size={14} />
+                                                </button>
                                             )}
                                         </div>
-                                    );
-                                })}
-                                <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
-                                    <div className="flex justify-between items-center w-full">
-                                        <span className="font-medium text-gray-700">股票資產</span>
+                                        {editingLimitWallet === acc.name ? (
+                                            <div className="flex items-center gap-1 mt-1">
+                                                <input type="number" value={editLimitAmount} onChange={e => setEditLimitAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus placeholder="最高額度" />
+                                                <button onClick={() => {
+                                                    const val = parseFloat(editLimitAmount) || 0;
+                                                    const newAccounts = accounts.map(a => a.id === acc.id ? {...a, limit: val} : a);
+                                                    handleUpdateSettings(expenseCategories, incomeCategories, newAccounts);
+                                                    setEditingLimitWallet(null);
+                                                }} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
+                                            </div>
+                                        ) : adjustingWallet === acc.name ? (
+                                            <div className="flex items-center gap-1 mt-1">
+                                                <input type="number" value={adjustWalletAmount} onChange={e => setAdjustWalletAmount(e.target.value)} className="w-full p-1.5 border rounded text-right outline-none focus:border-blue-500 text-sm" autoFocus />
+                                                <button onClick={() => handleAdjustBalanceConfirm(acc.name, acc.currentBalance)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"><Icon name="check" size={16}/></button>
+                                                <button onClick={() => setAdjustingWallet(null)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded"><Icon name="x" size={16}/></button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col gap-0.5 mt-1">
+                                                <span className={`text-xl font-bold ${acc.currentBalance < 0 ? 'text-rose-500' : 'text-gray-900'}`}>
+                                                    ${acc.currentBalance.toLocaleString()}
+                                                </span>
+                                                {(acc.type === '信用卡' || acc.type === '先用後付') && acc.limit > 0 && (
+                                                    <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                                                        可用額度: ${(parseFloat(acc.limit) + acc.currentBalance).toLocaleString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
-                                    <span className="text-xl font-bold text-gray-900 flex items-center gap-2">${Math.round(totalStockValue).toLocaleString()}</span>
-                                </div>
+                                ))}
                             </div>
                         </div>
 
-                        {portfolio.length > 0 && (
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center justify-between">
-                                    <div className="flex items-center gap-2"><Icon name="briefcase" size={18} /> 股票持有明細</div>
-                                </h3>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                                <div className="flex items-center gap-2"><Icon name="briefcase" size={18} /> 股票持有明細</div>
+                                <div className="text-indigo-600 font-bold">${Math.round(totalStockValue).toLocaleString()}</div>
+                            </h3>
+                            {portfolio.length > 0 ? (
                                 <div className="space-y-3">
                                     <p className="text-xs text-gray-500 border-b border-gray-100 pb-2 mb-2">資料與股價由 Google 試算表即時連動 (美金匯率: {usdRate.toFixed(2)})</p>
                                     {portfolio.map(h => {
@@ -1257,8 +1329,10 @@
                                         );
                                     })}
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <p className="text-sm text-gray-400 py-4 text-center border border-dashed rounded-xl">目前無股票庫存</p>
+                            )}
+                        </div>
 
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
                             <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -1267,11 +1341,11 @@
                             <form onSubmit={handleTransfer} className="space-y-4">
                                 <div className="flex items-center gap-2">
                                     <select value={transferForm.fromWallet} onChange={e => setTransferForm({...transferForm, fromWallet: e.target.value})} className="flex-1 p-2 border rounded-lg">
-                                        {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                        {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
                                     </select>
                                     <span className="text-gray-400">至</span>
                                     <select value={transferForm.toWallet} onChange={e => setTransferForm({...transferForm, toWallet: e.target.value})} className="flex-1 p-2 border rounded-lg">
-                                        {wallets.map(w => <option key={w} value={w}>{w}</option>)}
+                                        {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -1428,6 +1502,201 @@
                 );
             };
 
+            const renderTaishinView = () => {
+                return (
+                    <div className="p-4 space-y-6 animate-in fade-in">
+                        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">
+                                <Icon name="search" size={20} className="text-red-500" /> 台新權益快速查詢
+                            </h3>
+                            <div className="relative">
+                                <Icon name="search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <input
+                                    type="text"
+                                    value={taishinSearchTerm}
+                                    onChange={(e) => setTaishinSearchTerm(e.target.value)}
+                                    placeholder="搜尋通路、關鍵字 (例如：高鐵、7-11、網購)..."
+                                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-400 outline-none text-sm transition-shadow"
+                                />
+                            </div>
+                            {taishinSearchTerm && (
+                                <p className="text-xs text-gray-500 mt-2">
+                                    正在搜尋：<span className="font-medium text-red-500">{taishinSearchTerm}</span>
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {filteredTaishinRewards.length > 0 ? (
+                                filteredTaishinRewards.map(reward => (
+                                    <div key={reward.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                                        <div className={`p-4 border-b flex justify-between items-start ${reward.rateColor}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 rounded-lg bg-white/60 backdrop-blur-sm shadow-sm">
+                                                    <Icon name={reward.icon} size={24} />
+                                                </div>
+                                                <div>
+                                                    <h4 className="font-bold text-lg">{reward.name}</h4>
+                                                    <span className="text-sm font-bold bg-white/80 px-2 py-0.5 rounded-full mt-1 inline-block shadow-sm">
+                                                        {reward.rate}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 flex-1 flex flex-col">
+                                            <p className="text-sm text-gray-700 mb-4 font-medium">{reward.description}</p>
+                                            <div className="space-y-3 flex-1">
+                                                {reward.displayCats.map((cat, idx) => (
+                                                    <div key={idx} className="bg-gray-50/80 p-3 rounded-lg border border-gray-100">
+                                                        <h5 className="text-sm font-bold text-gray-800 mb-1">{cat.title}</h5>
+                                                        <p className="text-xs text-gray-600 leading-relaxed">
+                                                            <HighlightText text={cat.items} highlight={taishinSearchTerm} />
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-dashed">
+                                    <Icon name="inbox" size={48} className="mx-auto mb-3 opacity-20" />
+                                    <p>找不到符合「{taishinSearchTerm}」的權益內容</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderSettingsView = () => {
+                const handleAddCat = (e) => {
+                    e.preventDefault();
+                    if (!newCat.trim()) return;
+                    let newExp = expenseCategories;
+                    let newInc = incomeCategories;
+                    if (catType === 'expense' && !expenseCategories.includes(newCat)) newExp = [...expenseCategories, newCat.trim()];
+                    if (catType === 'income' && !incomeCategories.includes(newCat)) newInc = [...incomeCategories, newCat.trim()];
+                    handleUpdateSettings(newExp, newInc, accounts);
+                    setNewCat('');
+                };
+
+                const handleAddAccount = (e) => {
+                    e.preventDefault();
+                    if (!newAcc.name.trim()) return;
+                    const newId = Date.now().toString();
+                    const newAccounts = [...accounts, { ...newAcc, id: newId, initialBalance: parseFloat(newAcc.initialBalance) || 0, limit: parseFloat(newAcc.limit) || 0 }];
+                    handleUpdateSettings(expenseCategories, incomeCategories, newAccounts);
+                    setNewAcc({ name: '', type: '現金', initialBalance: 0, limit: 0 });
+                };
+
+                return (
+                    <div className="p-4 space-y-6">
+                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                            <h3 className="font-bold text-blue-900">系統設定</h3>
+                            <p className="text-xs text-blue-700 mt-1">此處變更將自動同步儲存至雲端。</p>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-md font-semibold text-gray-800 mb-4 border-b pb-2">帳戶管理</h3>
+                            <div className="space-y-4">
+                                {accounts.map(acc => (
+                                    <div key={acc.id} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded">
+                                        <div>
+                                            <span className="font-medium text-gray-800">{acc.name}</span>
+                                            <span className="text-xs text-gray-500 ml-2 bg-gray-100 px-1.5 py-0.5 rounded">{acc.type}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                                            <span>初始: ${acc.initialBalance}</span>
+                                            {(acc.type === '信用卡' || acc.type === '先用後付') && <span>額度: ${acc.limit}</span>}
+                                            <button onClick={() => handleUpdateSettings(expenseCategories, incomeCategories, accounts.filter(a => a.id !== acc.id))} className="text-rose-500 hover:text-rose-700"><Icon name="trash-2" size={14}/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <form onSubmit={handleAddAccount} className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-dashed">
+                                    <select value={newAcc.type} onChange={e => setNewAcc({...newAcc, type: e.target.value})} className="p-2 border rounded text-sm w-full sm:w-auto">
+                                        <option value="現金">現金</option>
+                                        <option value="信用卡">信用卡</option>
+                                        <option value="先用後付">先用後付</option>
+                                    </select>
+                                    <input type="text" value={newAcc.name} onChange={e => setNewAcc({...newAcc, name: e.target.value})} placeholder="帳戶名稱 (如: 台新玫瑰卡)" className="flex-1 p-2 border rounded text-sm min-w-[150px]" required />
+                                    <input type="number" value={newAcc.initialBalance} onChange={e => setNewAcc({...newAcc, initialBalance: e.target.value})} placeholder="初始餘額" className="w-24 p-2 border rounded text-sm" />
+                                    {(newAcc.type === '信用卡' || newAcc.type === '先用後付') && (
+                                        <input type="number" value={newAcc.limit} onChange={e => setNewAcc({...newAcc, limit: e.target.value})} placeholder="最高額度" className="w-24 p-2 border rounded text-sm" />
+                                    )}
+                                    <button type="submit" className="bg-gray-800 text-white px-3 py-2 rounded text-sm">新增帳戶</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-md font-semibold text-gray-800 mb-4 border-b pb-2">收支類別管理</h3>
+                            <div className="grid sm:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="text-sm font-medium text-gray-600 mb-2">支出類別</h4>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {expenseCategories.map(c => (
+                                            <span key={c} className="bg-rose-50 text-rose-700 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                                                {c} <button onClick={() => handleUpdateSettings(expenseCategories.filter(x => x !== c), incomeCategories, accounts)}><Icon name="x" size={10}/></button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-medium text-gray-600 mb-2">收入類別</h4>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {incomeCategories.map(c => (
+                                            <span key={c} className="bg-emerald-50 text-emerald-700 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                                                {c} <button onClick={() => handleUpdateSettings(expenseCategories, incomeCategories.filter(x => x !== c), accounts)}><Icon name="x" size={10}/></button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            <form onSubmit={handleAddCat} className="flex gap-2 mt-4 pt-4 border-t border-dashed">
+                                <select value={catType} onChange={e => setCatType(e.target.value)} className="p-2 border rounded text-sm">
+                                    <option value="expense">支出</option>
+                                    <option value="income">收入</option>
+                                </select>
+                                <input type="text" value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="新類別名稱" className="flex-1 p-2 border rounded text-sm" required />
+                                <button type="submit" className="bg-gray-800 text-white px-3 py-2 rounded text-sm">新增</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            };
+
+            const Checkbox = ({ label, checked, onChange, isParent = false }) => (
+                <label className={`flex items-center gap-2 cursor-pointer ${isParent ? 'font-bold text-gray-800' : 'text-sm text-gray-600'}`}>
+                    <input type="checkbox" checked={checked} onChange={onChange} className="custom-checkbox" />
+                    {label}
+                </label>
+            );
+
+            if (isInitialLoading) {
+                return null; // 取消載入畫面，因為會瞬間載入
+            }
+
+            if (!isAuthenticated) {
+                return (
+                    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+                        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
+                            <div className="flex justify-center mb-6">
+                                <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center text-white text-3xl font-bold">帳</div>
+                            </div>
+                            <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">家庭記帳本登入</h2>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div>
+                                    <input type="password" value={systemPassword} onChange={e => setSystemPassword(e.target.value)} className="w-full p-3.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center tracking-widest font-mono" placeholder="請輸入系統密碼" autoFocus />
+                                </div>
+                                {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3.5 rounded-xl transition-colors shadow-sm">解鎖系統</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
                     <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
@@ -1436,7 +1705,7 @@
                             {isSyncing && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500" title="同步中..." />}
                         </div>
                         <div className="flex flex-col gap-2 px-4 flex-1">
-                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包與資產' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }].map(tab => (
+                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包與資產' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }, { id: 'taishin', icon: 'search', label: '台新權益' }, { id: 'settings', icon: 'settings', label: '系統設定' }].map(tab => (
                                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center justify-start gap-3 px-4 py-3 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
                                     <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
                                     <span className="text-sm font-medium">{tab.label}</span>
@@ -1452,7 +1721,7 @@
 
                     <nav className="md:hidden fixed bottom-0 w-full bg-white border-t z-20">
                         <div className="flex justify-around p-2">
-                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }].map(tab => (
+                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }, { id: 'taishin', icon: 'search', label: '權益' }].map(tab => (
                                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900'}`}>
                                     <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
                                     <span className="text-[10px] font-medium">{tab.label}</span>
@@ -1485,6 +1754,8 @@
                                 {activeTab === 'record' && renderRecordView()}
                                 {activeTab === 'wallet' && renderWalletView()}
                                 {activeTab === 'analysis' && renderAnalysisView()}
+                                {activeTab === 'taishin' && renderTaishinView()}
+                                {activeTab === 'settings' && renderSettingsView()}
                             </div>
                         </main>
                     </div>
