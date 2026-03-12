@@ -720,7 +720,7 @@
 請判斷使用者的每一筆輸入，並輸出為對應格式的 JSON 物件：
 1. 支出: {"type": "expense", "category": "嚴格從[${expenseCategories.join(', ')}]選擇一項", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "帳戶名稱", "date": "YYYY-MM-DD", "note": "備註"}
 2. 收入: {"type": "income", "category": "嚴格從[${incomeCategories.join(', ')}]選擇一項", "itemName": "簡短名稱", "amount": 數字(正數), "wallet": "帳戶名稱", "date": "YYYY-MM-DD", "note": "備註"}
-3. 投資: {"type": "investment", "symbol": "股票代號", "shares": 數字(買入正，賣出負), "amount": 數字(總金額絕對值), "market": "TW" 或 "US", "date": "YYYY-MM-DD", "note": "備註", "wallet": "現金"}
+3. 投資: {"type": "investment", "symbol": "股票代號,日月光是3711", "shares": 數字(買入正，賣出負), "amount": 數字(總金額絕對值), "market": "TW" 或 "US", "date": "YYYY-MM-DD", "note": "備註", "wallet": "現金"}
 4. 轉帳: {"type": "transfer", "amount": 數字(正數), "fromWallet": "帳戶名稱", "toWallet": "帳戶名稱", "note": "備註", "date": "YYYY-MM-DD"}
 可用帳戶名單：${activeWallets.join(', ')}。若使用者未指定，請預設使用 "現金"。請務必回傳 JSON 陣列。不要包含任何 markdown。分類(category)絕對不能自行創造，必須完全吻合給定的列表。`;
 
@@ -1892,4 +1892,5 @@ ${txListStr}
     </script>
 </body>
 </html>
+
 
