@@ -5,19 +5,202 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>家庭記帳本</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/feather-icons"></script>
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        :root {
+            --sidebar: #111118;
+            --sidebar-border: #1f1f2e;
+            --sidebar-hover: #1c1c2a;
+            --sidebar-active-bg: rgba(99,102,241,0.14);
+            --sidebar-active-color: #a5b4fc;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --accent-glow: rgba(99,102,241,0.25);
+            --bg: #f3f4f8;
+            --surface: #ffffff;
+            --surface-2: #f8f9fc;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-2: #6b7280;
+            --text-3: #9ca3af;
+            --expense: #dc2626;
+            --expense-bg: #fef2f2;
+            --income: #059669;
+            --income-bg: #ecfdf5;
+            --invest: #7c3aed;
+            --invest-bg: #f5f3ff;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
         #root { min-height: 100vh; }
-        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
+
         .markdown-body p { margin-bottom: 0.75em; }
         .markdown-body strong { font-weight: 600; color: #1e293b; }
-        .custom-checkbox { accent-color: #2563eb; width: 16px; height: 16px; cursor: pointer; }
-        .highlight { background-color: #fef08a; font-weight: bold; padding: 0 2px; border-radius: 2px; }
+        .custom-checkbox { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+        .highlight { background: #fef08a; font-weight: 600; padding: 0 2px; border-radius: 3px; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 99px; }
+
+        /* Animations */
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeUp 0.22s ease forwards; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; display: inline-flex !important; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+        /* Sidebar nav item */
+        .s-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 12px; border-radius: 9px;
+            font-size: 0.855rem; font-weight: 500;
+            color: #71717a; cursor: pointer;
+            transition: background 0.14s, color 0.14s;
+            width: 100%; border: none; background: none;
+            text-align: left; font-family: inherit;
+        }
+        .s-item:hover { background: var(--sidebar-hover); color: #e4e4e7; }
+        .s-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-color); }
+
+        /* Form field */
+        .field {
+            width: 100%; padding: 10px 14px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 10px; font-size: 0.875rem; color: var(--text);
+            outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+            font-family: inherit;
+        }
+        .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); background: white; }
+        .field::placeholder { color: var(--text-3); }
+        select.field { cursor: pointer; }
+
+        /* Surface card */
+        .surface { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+
+        /* Primary button */
+        .btn-pri {
+            background: var(--accent); color: #fff;
+            padding: 10px 18px; border-radius: 10px;
+            font-size: 0.875rem; font-weight: 600;
+            border: none; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 6px;
+            transition: background 0.14s, transform 0.1s;
+            font-family: inherit; white-space: nowrap;
+        }
+        .btn-pri:hover { background: var(--accent-hover); }
+        .btn-pri:active { transform: scale(0.97); }
+        .btn-pri:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Secondary button */
+        .btn-sec {
+            background: var(--surface-2); color: var(--text-2);
+            padding: 10px 18px; border-radius: 10px;
+            font-size: 0.875rem; font-weight: 500;
+            border: 1px solid var(--border); cursor: pointer;
+            display: inline-flex; align-items: center; gap: 6px;
+            transition: background 0.14s, color 0.14s;
+            font-family: inherit;
+        }
+        .btn-sec:hover { background: var(--border); color: var(--text); }
+        .btn-sec:active { transform: scale(0.97); }
+
+        /* Transaction row */
+        .tx-row td { padding: 10px 12px; }
+        .tx-row:hover { background: var(--surface-2); }
+        .tx-row:hover .tx-actions { opacity: 1; }
+        .tx-actions { opacity: 0; transition: opacity 0.15s; }
+
+        /* Amount colors */
+        .c-expense { color: var(--expense); }
+        .c-income { color: var(--income); }
+        .c-invest-buy { color: var(--invest); }
+        .c-transfer { color: var(--text-2); }
+
+        /* Glass effect for login */
+        .glass {
+            background: rgba(255,255,255,0.07);
+            backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255,255,255,0.13);
+        }
+
+        /* Category tag */
+        .cat-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 9px; border-radius: 99px;
+            font-size: 0.72rem; font-weight: 500;
+        }
+
+        /* Stat card */
+        .stat-card { border-radius: 12px; padding: 16px 18px; }
+
+        /* Div-based transaction card row */
+        @keyframes rowIn {
+            from { opacity: 0; transform: translateX(-8px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        .tx-card {
+            display: flex; align-items: center; gap: 10px;
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            transition: background 0.12s;
+            cursor: default;
+            animation: rowIn 0.22s ease forwards;
+            opacity: 0;
+        }
+        .tx-card:last-child { border-bottom: none; }
+        .tx-card:hover { background: var(--surface-2); }
+        .tx-card:hover .tx-actions { opacity: 1 !important; }
+        .tx-card:nth-child(1)  { animation-delay: 0ms; }
+        .tx-card:nth-child(2)  { animation-delay: 35ms; }
+        .tx-card:nth-child(3)  { animation-delay: 70ms; }
+        .tx-card:nth-child(4)  { animation-delay: 105ms; }
+        .tx-card:nth-child(5)  { animation-delay: 140ms; }
+        .tx-card:nth-child(6)  { animation-delay: 170ms; }
+        .tx-card:nth-child(7)  { animation-delay: 200ms; }
+        .tx-card:nth-child(n+8) { animation-delay: 230ms; }
+
+        /* Type icon bubble */
+        .type-icon {
+            width: 34px; height: 34px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+
+        /* Month stat chips */
+        .mstat { display: flex; flex-direction: column; }
+        .mstat-label { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
+        .mstat-val { font-size: 0.875rem; font-weight: 700; line-height: 1.2; }
+
+        /* Improved form panel */
+        .form-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-top: 10px; }
+        .form-label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.03em; }
+        .seg-btn { flex: 1; padding: 9px 8px; border-radius: 9px; font-size: 0.855rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+        .seg-btn.off { background: var(--surface-2); color: var(--text-3); }
+        .seg-btn.off:hover { background: var(--border); color: var(--text-2); }
     </style>
 </head>
 <body>
@@ -77,7 +260,10 @@
         const getColor = (idx) => CAT_COLORS[idx % CAT_COLORS.length];
 
         const Icon = ({ name, size = 24, className = "" }) => {
-            const svgString = feather.icons[name] ? feather.icons[name].toSvg({ width: size, height: size, class: className }) : '';
+            if (typeof feather === 'undefined' || !feather.icons[name]) {
+                return <span style={{ display: 'inline-flex', width: size, height: size }} />;
+            }
+            const svgString = feather.icons[name].toSvg({ width: size, height: size, class: className });
             return <span dangerouslySetInnerHTML={{ __html: svgString }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
         };
 
@@ -479,7 +665,7 @@
                     });
             };
 
-            useEffect(() => { feather.replace(); });
+            useEffect(() => { if (typeof feather !== 'undefined') feather.replace(); });
 
             useEffect(() => {
                 if (SpeechRecognition) {
@@ -1046,87 +1232,135 @@ ${txListStr}
 
                 const renderRecordRow = (record) => {
                     const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
+
+                    let typeColor, typeBg, typeIcon;
+                    if (record.type === 'transfer') {
+                        typeColor = 'var(--text-3)'; typeBg = 'var(--surface-2)'; typeIcon = 'repeat';
+                    } else if (record.type === 'investment') {
+                        typeColor = 'var(--invest)'; typeBg = 'var(--invest-bg)'; typeIcon = isInvestSell ? 'trending-up' : 'trending-down';
+                    } else if (isExpenseLike) {
+                        typeColor = 'var(--expense)'; typeBg = 'var(--expense-bg)'; typeIcon = 'minus-circle';
+                    } else {
+                        typeColor = 'var(--income)'; typeBg = 'var(--income-bg)'; typeIcon = 'plus-circle';
+                    }
+
+                    const amountColor = isExpenseLike ? 'var(--expense)' : isIncomeLike ? 'var(--income)' : isInvestSell ? 'var(--income)' : 'var(--invest)';
+                    const amountPrefix = isExpenseLike ? '-' : isIncomeLike ? '+' : '';
+
                     return editingRecordId === record.id ? (
-                        <tr key={record.id} className="bg-blue-50/40 border-b border-blue-100">
-                            <td colSpan="4" className="p-3">
-                                {renderInlineEditContent()}
-                            </td>
-                        </tr>
+                        <div key={record.id} style={{ padding: '12px 14px', background: 'rgba(99,102,241,0.04)', borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
+                            {renderInlineEditContent()}
+                        </div>
                     ) : (
-                        <tr key={record.id} className="hover:bg-gray-50 group">
-                            <td className="py-2 px-2 sm:px-3 text-gray-500 w-12 sm:w-16 whitespace-nowrap">{record.date.substring(5)}</td>
-                            <td className="py-2 px-2 sm:px-3 overflow-hidden">
-                                <div className="font-medium text-gray-800 truncate text-[12px] sm:text-sm">
-                                    {record.type === 'transfer' ? `${record.fromWallet} ➔ ${record.toWallet}` : record.itemName}
+                        <div key={record.id} className="tx-card">
+                            <div className="type-icon" style={{ background: typeBg }}>
+                                <Icon name={typeIcon} size={15} style={{ color: typeColor }} />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.87rem', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {record.type === 'transfer' ? `${record.fromWallet} → ${record.toWallet}` : record.itemName}
                                 </div>
-                                <div className="text-[10px] text-gray-400 truncate mt-0.5">
-                                    {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
-                                    {record.type !== 'transfer' && <span className="mr-1">[{record.wallet}] {record.category}</span>}
-                                    {record.note && <span>• {record.note}</span>}
+                                <div style={{ fontSize: '0.71rem', color: 'var(--text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 &bull; </span>}
+                                    {record.type !== 'transfer' && <span>{record.category} &bull; {record.wallet}</span>}
+                                    {record.type === 'transfer' && <span>轉帳</span>}
+                                    {record.note && <span> &bull; {record.note}</span>}
                                 </div>
-                            </td>
-                            <td className={`py-2 px-2 sm:px-3 text-right font-bold w-16 sm:w-24 whitespace-nowrap ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>{isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}</td>
-                            <td className="py-2 px-1 text-center w-10 sm:w-16">
-                                <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditRecord(record)} className="p-1 text-gray-400 hover:text-blue-600 rounded bg-white shadow-sm border"><Icon name="edit-2" size={12} /></button>
-                                    <button onClick={() => handleDeleteRecord(record.id)} className="p-1 text-gray-400 hover:text-rose-600 rounded bg-white shadow-sm border"><Icon name="trash-2" size={12} /></button>
-                                </div>
-                            </td>
-                        </tr>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-3)', flexShrink: 0, marginRight: 4 }}>
+                                {record.date.substring(5)}
+                            </span>
+                            <div style={{ fontWeight: 700, fontSize: '0.875rem', color: amountColor, flexShrink: 0, minWidth: 60, textAlign: 'right', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.01em' }}>
+                                {amountPrefix}${record.amount.toLocaleString()}
+                            </div>
+                            <div className="tx-actions" style={{ opacity: 0, transition: 'opacity 0.15s', display: 'flex', gap: 4, flexShrink: 0 }}>
+                                <button onClick={() => handleEditRecord(record)} style={{ padding: '4px 5px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--surface)', cursor: 'pointer', display: 'flex', color: 'var(--text-3)', transition: 'color 0.12s, border-color 0.12s' }}
+                                    onMouseOver={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                                    onMouseOut={e => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+                                ><Icon name="edit-2" size={12} /></button>
+                                <button onClick={() => handleDeleteRecord(record.id)} style={{ padding: '4px 5px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--surface)', cursor: 'pointer', display: 'flex', color: 'var(--text-3)', transition: 'color 0.12s, border-color 0.12s' }}
+                                    onMouseOver={e => { e.currentTarget.style.color = 'var(--expense)'; e.currentTarget.style.borderColor = 'var(--expense)'; }}
+                                    onMouseOut={e => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+                                ><Icon name="trash-2" size={12} /></button>
+                            </div>
+                        </div>
                     );
                 };
 
                 return (
                     <div className="p-4 space-y-6">
-                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl shadow-sm border border-blue-100 flex flex-col sm:flex-row gap-2 items-center">
-                            <div className="relative flex-1 w-full">
-                                <input type="text" value={aiInputText} onChange={(e) => setAiInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiParse()} placeholder="語音或輸入自動記帳：買1股QQQ 18000" className="w-full p-2.5 pr-10 rounded-lg border-white shadow-sm focus:ring-2 focus:ring-blue-400 outline-none text-sm" disabled={isAiParsing} />
-                                <button onClick={toggleVoiceInput} type="button" className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-gray-400 hover:text-blue-600'}`}><Icon name="mic" size={16} /></button>
+                        <div className="surface" style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                                <Icon name="zap" size={14} style={{ color: 'var(--accent)' }} />
+                                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent)' }}>AI 智慧記帳</span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginLeft: 2 }}>直接說出或輸入消費描述</span>
                             </div>
-                            <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2 whitespace-nowrap">
-                                {isAiParsing ? <><Icon name="loader" size={16} className="animate-spin" /> 處理中...</> : <><Icon name="zap" size={16} /> 直接記帳</>}
-                            </button>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <div style={{ position: 'relative', flex: 1 }}>
+                                    <input
+                                        type="text"
+                                        value={aiInputText}
+                                        onChange={(e) => setAiInputText(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
+                                        placeholder="例：昨天午餐花 120 元、買 1 股 QQQ 花了 18000"
+                                        className="field"
+                                        style={{ paddingRight: 40 }}
+                                        disabled={isAiParsing}
+                                    />
+                                    <button onClick={toggleVoiceInput} type="button" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', padding: 4, border: 'none', background: 'none', cursor: 'pointer', display: 'flex', color: isListening ? 'var(--expense)' : 'var(--text-3)', transition: 'color 0.15s' }} className={isListening ? 'animate-pulse' : ''}>
+                                        <Icon name="mic" size={16} />
+                                    </button>
+                                </div>
+                                <button onClick={handleAiParse} disabled={isAiParsing || !aiInputText.trim()} className="btn-pri" style={{ justifyContent: 'center' }}>
+                                    {isAiParsing
+                                        ? <><Icon name="loader" size={15} className="animate-spin" /> 解析中...</>
+                                        : <><Icon name="zap" size={15} /> 直接記帳</>
+                                    }
+                                </button>
+                            </div>
                         </div>
 
                         <div>
-                            <button onClick={() => setIsManualFormOpen(!isManualFormOpen)} className="w-full flex items-center justify-between bg-white p-3.5 rounded-xl shadow-sm border border-gray-100 text-gray-700 font-medium hover:bg-gray-50 transition-colors">
-                                <div className="flex items-center gap-2"><Icon name="edit-3" size={18} className="text-gray-400" /> 手動記帳</div>
-                                <Icon name={isManualFormOpen ? "chevron-up" : "chevron-down"} size={18} className="text-gray-400" />
+                            <button onClick={() => setIsManualFormOpen(!isManualFormOpen)} className="surface" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer', border: '1px solid var(--border)', background: isManualFormOpen ? 'var(--surface)' : 'var(--surface)', transition: 'background 0.15s', fontFamily: 'inherit' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600 }}>
+                                    <Icon name="edit-3" size={16} style={{ color: 'var(--text-3)' }} /> 手動記帳
+                                </div>
+                                <Icon name={isManualFormOpen ? "chevron-up" : "chevron-down"} size={16} style={{ color: 'var(--text-3)' }} />
                             </button>
                             
                             {isManualFormOpen && (
-                                <div className="mt-3 bg-white p-4 rounded-xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-top-2">
-                                    <div className="flex gap-2 mb-4">
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>支出</button>
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'income' ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>收入</button>
-                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '', wallet: '現金' })} className={`flex-1 py-2 rounded-lg font-medium transition-colors ${recordForm.type === 'investment' ? 'bg-indigo-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>投資</button>
+                                <div className="form-panel fade-in">
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: 16, padding: 4, background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'expense', category: '飲食' })} className={`seg-btn ${recordForm.type === 'expense' ? '' : 'off'}`} style={recordForm.type === 'expense' ? { background: 'var(--expense)', color: '#fff' } : {}}>支出</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'income', category: '薪資' })} className={`seg-btn ${recordForm.type === 'income' ? '' : 'off'}`} style={recordForm.type === 'income' ? { background: 'var(--income)', color: '#fff' } : {}}>收入</button>
+                                        <button onClick={() => setRecordForm({ ...recordForm, type: 'investment', isSell: false, symbol: '', shares: '', amount: '', wallet: '現金' })} className={`seg-btn ${recordForm.type === 'investment' ? '' : 'off'}`} style={recordForm.type === 'investment' ? { background: 'var(--invest)', color: '#fff' } : {}}>投資</button>
                                     </div>
-                                    <form onSubmit={handleAddRecord} className="space-y-4">
+                                    <form onSubmit={handleAddRecord} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
-                                            <input type="date" value={recordForm.date} onChange={e => setRecordForm({...recordForm, date: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                                            <label className="form-label">日期</label>
+                                            <input type="date" value={recordForm.date} onChange={e => setRecordForm({...recordForm, date: e.target.value})} className="field" required />
                                         </div>
 
                                         {recordForm.type === 'investment' ? (
                                             <React.Fragment>
-                                                <div className="flex gap-2 bg-gray-50 p-1 rounded-lg">
-                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: false, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${!recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-500'}`}>買入庫存</button>
-                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: true, symbol: '', shares: '', amount: ''})} className={`flex-1 py-1.5 rounded text-sm font-medium transition-colors ${recordForm.isSell ? 'bg-white shadow text-indigo-700' : 'text-gray-500'}`}>賣出庫存</button>
+                                                <div style={{ display: 'flex', gap: 6, padding: 4, background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)' }}>
+                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: false, symbol: '', shares: '', amount: ''})} className={`seg-btn ${!recordForm.isSell ? '' : 'off'}`} style={!recordForm.isSell ? { background: 'var(--invest)', color: '#fff' } : {}}>買入庫存</button>
+                                                    <button type="button" onClick={() => setRecordForm({...recordForm, isSell: true, symbol: '', shares: '', amount: ''})} className={`seg-btn ${recordForm.isSell ? '' : 'off'}`} style={recordForm.isSell ? { background: 'var(--income)', color: '#fff' } : {}}>賣出庫存</button>
                                                 </div>
                                                 {!recordForm.isSell && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-1">市場</label>
-                                                        <div className="flex gap-2">
-                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'TW' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>台股</button>
-                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`flex-1 py-2 border rounded-lg text-sm font-medium transition-colors ${recordForm.market === 'US' ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white text-gray-600'}`}>美股</button>
+                                                        <label className="form-label">市場</label>
+                                                        <div style={{ display: 'flex', gap: 6 }}>
+                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'TW'})} className={`seg-btn ${recordForm.market === 'TW' ? '' : 'off'}`} style={recordForm.market === 'TW' ? { background: 'var(--accent)', color: '#fff' } : {}}>台股</button>
+                                                            <button type="button" onClick={() => setRecordForm({...recordForm, market: 'US'})} className={`seg-btn ${recordForm.market === 'US' ? '' : 'off'}`} style={recordForm.market === 'US' ? { background: 'var(--accent)', color: '#fff' } : {}}>美股</button>
                                                         </div>
                                                     </div>
                                                 )}
                                                 <div className="flex gap-3">
                                                     {recordForm.isSell ? (
                                                         <div className="flex-1">
-                                                            <label className="block text-sm font-medium text-gray-700 mb-1">選擇賣出</label>
-                                                            <select value={recordForm.symbol} onChange={e => { const selected = portfolio.find(p => p.symbol === e.target.value); setRecordForm({...recordForm, symbol: e.target.value, market: selected ? selected.market : 'TW'}); }} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required>
+                                                            <label className="form-label">選擇賣出</label>
+                                                            <select value={recordForm.symbol} onChange={e => { const selected = portfolio.find(p => p.symbol === e.target.value); setRecordForm({...recordForm, symbol: e.target.value, market: selected ? selected.market : 'TW'}); }} className="field" style={{ textTransform: 'uppercase' }} required>
                                                                 <option value="">請選擇庫存</option>
                                                                 {portfolio.map(p => <option key={p.symbol} value={p.symbol}>{p.symbol} (可賣: {p.shares} 股)</option>)}
                                                                 {recordForm.symbol && !portfolio.find(p => p.symbol === recordForm.symbol) && <option value={recordForm.symbol}>{recordForm.symbol} (已售完)</option>}
@@ -1134,112 +1368,133 @@ ${txListStr}
                                                         </div>
                                                     ) : (
                                                         <div className="flex-1">
-                                                            <label className="block text-sm font-medium text-gray-700 mb-1">股票代號</label>
-                                                            <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none uppercase" required />
+                                                            <label className="form-label">股票代號</label>
+                                                            <input type="text" value={recordForm.symbol} onChange={e => setRecordForm({...recordForm, symbol: e.target.value.toUpperCase()})} placeholder={recordForm.market === 'TW' ? "例如: 0050" : "例如: AAPL"} className="field" style={{ textTransform: 'uppercase' }} required />
                                                         </div>
                                                     )}
                                                     <div className="flex-1">
-                                                        <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出股數' : '購買股數'}</label>
-                                                        <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                                        <label className="form-label">{recordForm.isSell ? '賣出股數' : '購買股數'}</label>
+                                                        <input type="number" step="0.00001" min="0" value={recordForm.shares} onChange={e => setRecordForm({...recordForm, shares: e.target.value})} placeholder="例如: 100" className="field" required />
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '賣出總金額 (TWD)' : '扣款總金額 (TWD)'}</label>
-                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder={`本次交易的總新台幣`} min="0" step="1" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required />
+                                                    <label className="form-label">{recordForm.isSell ? '賣出總金額 (TWD)' : '扣款總金額 (TWD)'}</label>
+                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} placeholder={`本次交易的總新台幣`} min="0" step="1" className="field" required />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
-                                                    <div className="p-2.5 bg-gray-50 border rounded-lg text-gray-600 flex justify-between items-center">
-                                                        <span>現金</span><span className="text-sm font-medium">餘額: ${accountBalances['現金'] ? accountBalances['現金'].currentBalance.toLocaleString() : 0}</span>
+                                                    <label className="form-label">{recordForm.isSell ? '入帳帳戶' : '扣款帳戶'}</label>
+                                                    <div style={{ padding: '10px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem', color: 'var(--text-2)' }}>
+                                                        <span>現金</span>
+                                                        <span style={{ fontWeight: 600, color: 'var(--text)' }}>餘額: ${accountBalances['現金'] ? accountBalances['現金'].currentBalance.toLocaleString() : 0}</span>
                                                     </div>
                                                 </div>
                                             </React.Fragment>
                                         ) : (
                                             <React.Fragment>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">類別</label>
-                                                    <select value={recordForm.category} onChange={e => setRecordForm({...recordForm, category: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <label className="form-label">類別</label>
+                                                    <select value={recordForm.category} onChange={e => setRecordForm({...recordForm, category: e.target.value})} className="field">
                                                         {(recordForm.type === 'expense' ? expenseCategories : incomeCategories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                                     </select>
                                                 </div>
                                                 {recordForm.category === '其他' && (
                                                     <div>
-                                                        <label className="block text-sm font-medium text-gray-700 mb-1">自訂名稱</label>
-                                                        <input type="text" value={recordForm.customCategory} onChange={e => setRecordForm({...recordForm, customCategory: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                                                        <label className="form-label">自訂名稱</label>
+                                                        <input type="text" value={recordForm.customCategory} onChange={e => setRecordForm({...recordForm, customCategory: e.target.value})} className="field" required />
                                                     </div>
                                                 )}
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">項目名稱</label>
-                                                    <input type="text" value={recordForm.itemName} onChange={e => setRecordForm({...recordForm, itemName: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="例如：午餐、水電費" required />
+                                                    <label className="form-label">項目名稱</label>
+                                                    <input type="text" value={recordForm.itemName} onChange={e => setRecordForm({...recordForm, itemName: e.target.value})} className="field" placeholder="例如：午餐、水電費" required />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">金額</label>
-                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0" min="0" step="1" required />
+                                                    <label className="form-label">金額</label>
+                                                    <input type="number" value={recordForm.amount} onChange={e => setRecordForm({...recordForm, amount: e.target.value})} className="field" placeholder="0" min="0" step="1" required />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-medium text-gray-700 mb-1">錢包 (支付/入帳方式)</label>
-                                                    <select value={recordForm.wallet} onChange={e => setRecordForm({...recordForm, wallet: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <label className="form-label">錢包 (支付/入帳方式)</label>
+                                                    <select value={recordForm.wallet} onChange={e => setRecordForm({...recordForm, wallet: e.target.value})} className="field">
                                                         {activeWallets.map(w => <option key={w} value={w}>{w}</option>)}
                                                     </select>
                                                 </div>
                                             </React.Fragment>
                                         )}
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">備註 (選填)</label>
-                                            <input type="text" value={recordForm.note} onChange={e => setRecordForm({...recordForm, note: e.target.value})} className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                            <label className="form-label">備註 (選填)</label>
+                                            <input type="text" value={recordForm.note} onChange={e => setRecordForm({...recordForm, note: e.target.value})} className="field" />
                                         </div>
-                                        <button type="submit" className={`w-full py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 mt-2 text-white ${recordForm.type === 'investment' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                                            <Icon name="plus" size={18} /> 新增紀錄
+                                        <button type="submit" className="btn-pri" style={{ width: '100%', justifyContent: 'center', padding: '11px 18px', fontSize: '0.9rem', background: recordForm.type === 'expense' ? 'var(--expense)' : recordForm.type === 'income' ? 'var(--income)' : 'var(--invest)' }}>
+                                            <Icon name="plus" size={17} /> 新增紀錄
                                         </button>
                                     </form>
                                 </div>
                             )}
                         </div>
 
-                        {/* 新增：切換月份、當月結餘、搜尋列 */}
-                        <div className="flex flex-col sm:flex-row items-center justify-between mt-8 border-b pb-4 gap-4">
-                            <div className="flex items-center gap-4 w-full sm:w-auto">
-                                <div className="flex items-center bg-white border border-gray-200 rounded-lg shadow-sm">
-                                    <button onClick={() => changeRecordMonth(-1)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-50 rounded-l-lg transition-colors"><Icon name="chevron-left" size={18} /></button>
-                                    <div className="px-4 font-bold text-gray-700 min-w-[100px] text-center">{recordMonth}</div>
-                                    <button onClick={() => changeRecordMonth(1)} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-50 rounded-r-lg transition-colors"><Icon name="chevron-right" size={18} /></button>
+                        {/* 月份導覽 + 結餘 + 搜尋 */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                {/* Month switcher */}
+                                <div className="surface" style={{ display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
+                                    <button onClick={() => changeRecordMonth(-1)} style={{ padding: '7px 10px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-2)', display: 'flex', transition: 'background 0.14s' }} onMouseOver={e=>e.currentTarget.style.background='var(--surface-2)'} onMouseOut={e=>e.currentTarget.style.background='none'}>
+                                        <Icon name="chevron-left" size={16} />
+                                    </button>
+                                    <span style={{ padding: '0 8px', fontWeight: 700, fontSize: '0.875rem', color: 'var(--text)', minWidth: 80, textAlign: 'center' }}>{recordMonth}</span>
+                                    <button onClick={() => changeRecordMonth(1)} style={{ padding: '7px 10px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-2)', display: 'flex', transition: 'background 0.14s' }} onMouseOver={e=>e.currentTarget.style.background='var(--surface-2)'} onMouseOut={e=>e.currentTarget.style.background='none'}>
+                                        <Icon name="chevron-right" size={16} />
+                                    </button>
                                 </div>
-                                <div className="flex flex-col">
-                                    <span className="text-xs text-gray-400 font-medium">當月結餘</span>
-                                    <span className={`text-sm font-bold ${balanceColor}`}>${monthBalance.toLocaleString()}</span>
+                                {/* Income / Expense / Balance chips */}
+                                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                                    <div className="mstat">
+                                        <span className="mstat-label">收入</span>
+                                        <span className="mstat-val" style={{ color: 'var(--income)' }}>+${monthIncome.toLocaleString()}</span>
+                                    </div>
+                                    <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+                                    <div className="mstat">
+                                        <span className="mstat-label">支出</span>
+                                        <span className="mstat-val" style={{ color: 'var(--expense)' }}>-${monthExpense.toLocaleString()}</span>
+                                    </div>
+                                    <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
+                                    <div className="mstat">
+                                        <span className="mstat-label">結餘</span>
+                                        <span className="mstat-val" style={{ color: monthBalance >= 0 ? 'var(--income)' : 'var(--expense)' }}>
+                                            {monthBalance >= 0 ? '+' : ''}${monthBalance.toLocaleString()}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex w-full sm:w-auto gap-2">
-                                <div className="relative flex-1 sm:w-48">
-                                    <Icon name="search" size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <div style={{ display: 'flex', gap: 8, flex: '1 1 auto', maxWidth: 340 }}>
+                                <div style={{ position: 'relative', flex: 1 }}>
+                                    <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: 'var(--text-3)', pointerEvents: 'none' }}>
+                                        <Icon name="search" size={15} />
+                                    </span>
                                     <input
                                         type="text"
                                         value={recordSearchTerm}
                                         onChange={(e) => { setRecordSearchTerm(e.target.value); setAiFilteredIds(null); }}
                                         placeholder="搜尋紀錄..."
-                                        className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-400 outline-none text-sm shadow-sm"
+                                        className="field"
+                                        style={{ paddingLeft: 32, paddingTop: 8, paddingBottom: 8 }}
                                     />
                                 </div>
                                 {recordSearchTerm && (
-                                    <button
-                                        onClick={handleRecordAiSearch}
-                                        disabled={isRecordAiSearching}
-                                        className="bg-purple-100 text-purple-700 hover:bg-purple-200 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 whitespace-nowrap shadow-sm disabled:opacity-50"
-                                        title="使用 AI 進行語意搜尋"
-                                    >
-                                        {isRecordAiSearching ? <Icon name="loader" size={14} className="animate-spin" /> : <Icon name="cpu" size={14} />}
+                                    <button onClick={handleRecordAiSearch} disabled={isRecordAiSearching} style={{ padding: '0 12px', background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 10, color: '#7c3aed', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', fontFamily: 'inherit', opacity: isRecordAiSearching ? 0.6 : 1 }}>
+                                        {isRecordAiSearching ? <Icon name="loader" size={13} className="animate-spin" /> : <Icon name="cpu" size={13} />}
                                         AI 搜尋
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between mt-4">
-                            <h3 className="text-lg font-bold text-gray-800 tracking-wide">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text)' }}>
                                 {isSearching ? '搜尋結果' : '歷史紀錄'}
                             </h3>
-                            <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="text-sm text-gray-500 hover:text-blue-600 flex items-center gap-1"><Icon name="filter" size={14} /> 篩選</button>
+                            <button onClick={() => setIsFilterOpen(!isFilterOpen)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 8, background: isFilterOpen ? 'rgba(99,102,241,0.08)' : 'var(--surface)', color: isFilterOpen ? 'var(--accent)' : 'var(--text-2)', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                <Icon name="sliders" size={13} /> 篩選
+                            </button>
                         </div>
 
                         {/* 篩選器面板 */}
@@ -1273,37 +1528,36 @@ ${txListStr}
                         )}
 
                         {isSearching ? (
-                            <div className="space-y-3 pt-2">
+                            <div style={{ paddingTop: 4 }}>
                                 {searchResults.length > 0 ? (
-                                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                        <table className="w-full text-left text-sm table-fixed sm:table-auto">
-                                            <tbody className="divide-y divide-gray-100">
-                                                {searchResults.map(renderRecordRow)}
-                                            </tbody>
-                                        </table>
+                                    <div className="surface" style={{ overflow: 'hidden' }}>
+                                        {searchResults.map(renderRecordRow)}
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">找不到符合的紀錄</p>
+                                    <div style={{ textAlign: 'center', padding: '32px 0', border: '1px dashed var(--border)', borderRadius: 14 }}>
+                                        <Icon name="search" size={28} style={{ color: 'var(--text-3)', marginBottom: 8 }} />
+                                        <p style={{ fontSize: '0.875rem', color: 'var(--text-3)', margin: 0 }}>找不到符合的紀錄</p>
+                                    </div>
                                 )}
                             </div>
                         ) : (
                             <React.Fragment>
                                 {isViewingCurrentMonth && (
-                                    <div className="space-y-3 pt-2">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h4 className="text-sm font-semibold text-gray-500">
-                                                本日記帳
-                                                <span className="ml-2 text-rose-500 font-medium text-xs">總花費: ${todayExpenseTotal.toLocaleString()}</span>
-                                            </h4>
-                                            <button onClick={handleTaishinCardAdvice} disabled={isTaishinAdvising} className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 hover:bg-indigo-100 flex items-center gap-1">
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>本日記帳</span>
+                                                {todayExpenseTotal > 0 && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--expense)' }}>-${todayExpenseTotal.toLocaleString()}</span>}
+                                            </div>
+                                            <button onClick={handleTaishinCardAdvice} disabled={isTaishinAdvising} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, color: 'var(--accent)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: isTaishinAdvising ? 0.6 : 1 }}>
                                                 {isTaishinAdvising ? <Icon name="loader" size={12} className="animate-spin"/> : <Icon name="credit-card" size={12}/>}
-                                                台新卡權益AI分析
+                                                台新卡 AI 分析
                                             </button>
                                         </div>
-                                        
+
                                         {taishinAdvice && (
-                                            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 text-sm text-indigo-900 markdown-body relative">
-                                                <button onClick={() => setTaishinAdvice('')} className="absolute top-2 right-2 text-indigo-400 hover:text-indigo-800"><Icon name="x" size={16}/></button>
+                                            <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: '14px 16px', fontSize: '0.85rem', color: '#3730a3', position: 'relative' }} className="markdown-body">
+                                                <button onClick={() => setTaishinAdvice('')} style={{ position: 'absolute', top: 10, right: 10, background: 'none', border: 'none', cursor: 'pointer', color: '#818cf8', display: 'flex' }}><Icon name="x" size={15}/></button>
                                                 {renderMarkdown(taishinAdvice)}
                                             </div>
                                         )}
@@ -1311,46 +1565,47 @@ ${txListStr}
                                         {filteredTodayRecords.length > 0 ? (
                                             filteredTodayRecords.map(record => {
                                                 const { isInvestSell, isExpenseLike, isIncomeLike } = getRecordDisplayInfo(record);
+                                                const amountColor = isExpenseLike ? 'var(--expense)' : isIncomeLike ? 'var(--income)' : 'var(--invest)';
+                                                const amountPrefix = isExpenseLike ? '-' : isIncomeLike ? '+' : '';
                                                 return editingRecordId === record.id ? (
-                                                    <div key={record.id} className="bg-blue-50/40 p-4 rounded-xl shadow-sm border border-blue-200">
+                                                    <div key={record.id} style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12, padding: 16 }}>
                                                         {renderInlineEditContent()}
                                                     </div>
                                                 ) : (
-                                                <div key={record.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center text-sm group transition-colors hover:border-blue-200">
-                                                    <div className="flex-1 min-w-0 pr-2">
-                                                        <span className="font-medium text-gray-800 truncate block">{record.itemName}</span>
-                                                        <div className="text-xs text-gray-400 truncate mt-0.5">
-                                                            {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股</span>}
-                                                            {record.type !== 'transfer' && <span className="mr-1">{record.wallet} • {record.category}</span>}
-                                                            {record.type === 'transfer' && <span className="mr-1">{record.fromWallet} ➔ {record.toWallet}</span>}
-                                                            {record.note && <span>• {record.note}</span>}
+                                                <div key={record.id} className="surface" style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, transition: 'box-shadow 0.15s', cursor: 'default' }}
+                                                    onMouseOver={e=>e.currentTarget.style.boxShadow='0 2px 12px rgba(0,0,0,0.07)'}
+                                                    onMouseOut={e=>e.currentTarget.style.boxShadow='none'}
+                                                >
+                                                    <div style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                                                        <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.itemName}</span>
+                                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {record.type === 'investment' && <span>{isInvestSell ? '賣出' : '買入'} {Math.abs(parseFloat(record.shares))} 股 &bull; </span>}
+                                                            {record.type !== 'transfer' && <span>{record.wallet} &bull; {record.category}</span>}
+                                                            {record.type === 'transfer' && <span>{record.fromWallet} → {record.toWallet}</span>}
+                                                            {record.note && <span> &bull; {record.note}</span>}
                                                         </div>
                                                     </div>
-                                                    <div className="text-right shrink-0">
-                                                        <div className={`font-bold ${isExpenseLike ? 'text-rose-600' : isIncomeLike ? 'text-emerald-600' : 'text-gray-700'}`}>{isExpenseLike ? '-' : isIncomeLike ? '+' : ''}${record.amount.toLocaleString()}</div>
-                                                        <div className="flex gap-2 justify-end mt-1 opacity-50 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => handleEditRecord(record)} className="text-gray-400 hover:text-blue-600"><Icon name="edit-2" size={14} /></button>
-                                                            <button onClick={() => handleDeleteRecord(record.id)} className="text-gray-400 hover:text-rose-600"><Icon name="trash-2" size={14} /></button>
+                                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: amountColor }}>{amountPrefix}${record.amount.toLocaleString()}</div>
+                                                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4, opacity: 0 }} className="tx-actions">
+                                                            <button onClick={() => handleEditRecord(record)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 2, display: 'flex' }} onMouseOver={e=>e.currentTarget.style.color='var(--accent)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-3)'}><Icon name="edit-2" size={13} /></button>
+                                                            <button onClick={() => handleDeleteRecord(record.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', padding: 2, display: 'flex' }} onMouseOver={e=>e.currentTarget.style.color='var(--expense)'} onMouseOut={e=>e.currentTarget.style.color='var(--text-3)'}><Icon name="trash-2" size={13} /></button>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 )
                                             })
-                                        ) : <p className="text-sm text-gray-400 pl-1">本日尚無紀錄</p>}
+                                        ) : <p style={{ fontSize: '0.85rem', color: 'var(--text-3)', padding: '4px 0' }}>本日尚無紀錄</p>}
                                     </div>
                                 )}
 
-                                <div className="space-y-3 pt-4">
-                                    <h4 className="text-sm font-semibold text-gray-500 mb-2">{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</h4>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{isViewingCurrentMonth ? '本月其他紀錄' : '本月紀錄'}</span>
                                     {filteredMonthRecords.length > 0 ? (
-                                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                                            <table className="w-full text-left text-sm table-fixed sm:table-auto">
-                                                <tbody className="divide-y divide-gray-100">
-                                                    {filteredMonthRecords.map(renderRecordRow)}
-                                                </tbody>
-                                            </table>
+                                        <div className="surface" style={{ overflow: 'hidden' }}>
+                                            {filteredMonthRecords.map(renderRecordRow)}
                                         </div>
-                                    ) : <p className="text-sm text-gray-400 pl-1 text-center py-6 border border-dashed rounded-xl">本月無其他紀錄</p>}
+                                    ) : <p style={{ fontSize: '0.85rem', color: 'var(--text-3)', textAlign: 'center', padding: '24px 0', border: '1px dashed var(--border)', borderRadius: 12, margin: 0 }}>本月無其他紀錄</p>}
                                 </div>
                             </React.Fragment>
                         )}
@@ -1362,23 +1617,44 @@ ${txListStr}
                 const totalAssets = Object.values(accountBalances).reduce((a, b) => a + b.currentBalance, 0) + totalStockValue;
                 return (
                     <div className="p-4 space-y-6">
-                        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-2xl shadow-md text-white">
-                            <div className="flex justify-between items-start">
+                        <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #1e1b4b 100%)', padding: '28px 24px', borderRadius: 20, position: 'relative', overflow: 'hidden' }}>
+                            {/* Decorative circles */}
+                            <div style={{ position: 'absolute', top: -24, right: -24, width: 130, height: 130, background: 'rgba(99,102,241,0.22)', borderRadius: '50%', pointerEvents: 'none' }} />
+                            <div style={{ position: 'absolute', bottom: -28, right: 70, width: 90, height: 90, background: 'rgba(139,92,246,0.16)', borderRadius: '50%', pointerEvents: 'none' }} />
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
                                 <div>
-                                    <h3 className="text-blue-100 text-sm font-medium mb-1">總資產 (TWD)</h3>
-                                    <div className="text-4xl font-bold">${Math.round(totalAssets).toLocaleString()}</div>
+                                    <p style={{ color: '#818cf8', fontSize: '0.78rem', fontWeight: 500, margin: '0 0 6px', letterSpacing: '0.02em' }}>總資產淨值 (TWD)</p>
+                                    <div style={{ color: '#ffffff', fontSize: '2.2rem', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em' }}>
+                                        ${Math.round(totalAssets).toLocaleString()}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 20, marginTop: 14 }}>
+                                        <div>
+                                            <p style={{ color: '#6366f1', fontSize: '0.68rem', margin: '0 0 2px', fontWeight: 500 }}>帳戶資金</p>
+                                            <p style={{ color: '#c7d2fe', fontSize: '0.88rem', fontWeight: 600, margin: 0 }}>
+                                                ${Math.round(Object.values(accountBalances).reduce((a, b) => a + b.currentBalance, 0)).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div style={{ width: 1, background: 'rgba(255,255,255,0.12)' }} />
+                                        <div>
+                                            <p style={{ color: '#6366f1', fontSize: '0.68rem', margin: '0 0 2px', fontWeight: 500 }}>股票市值</p>
+                                            <p style={{ color: '#c7d2fe', fontSize: '0.88rem', fontWeight: 600, margin: 0 }}>
+                                                ${Math.round(totalStockValue).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <button onClick={() => fetchCloudData(systemPassword)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors flex items-center gap-2 text-sm" title="取得最新股價">
-                                    <Icon name="refresh-cw" size={16} /> <span className="hidden md:inline">重整資料</span>
+                                <button onClick={() => fetchCloudData(systemPassword)} style={{ padding: '7px 13px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 9, color: '#c7d2fe', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit', transition: 'background 0.15s', flexShrink: 0 }} onMouseOver={e=>e.currentTarget.style.background='rgba(255,255,255,0.18)'} onMouseOut={e=>e.currentTarget.style.background='rgba(255,255,255,0.1)'}>
+                                    <Icon name="refresh-cw" size={13} /> <span className="hidden md:inline">重整資料</span>
                                 </button>
                             </div>
                         </div>
 
-                        <div className="space-y-3">
-                            <h3 className="text-lg font-semibold text-gray-800">所有帳戶</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>所有帳戶</h3>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                 {Object.values(accountBalances).map(acc => (
-                                    <div key={acc.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center gap-2">
+                                    <div key={acc.id} className="surface" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                         <div className="flex justify-between items-center w-full">
                                             <span className="font-medium text-gray-700 text-sm flex items-center gap-1">
                                                 {acc.name} <span className="text-xs text-gray-400">({acc.type})</span>
@@ -1502,33 +1778,49 @@ ${txListStr}
 
                 return (
                     <div className="p-4 space-y-6">
-                        <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-5 rounded-2xl border border-purple-100 shadow-sm">
-                            <div className="flex justify-between items-start mb-2">
-                                <h3 className="text-lg font-semibold text-purple-900 flex items-center gap-2">
-                                    <Icon name="message-circle" size={20} /> AI 理財顧問
-                                </h3>
-                                <button onClick={handleGenerateAdvice} disabled={isAiAdvising} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-2">
-                                    {isAiAdvising ? <Icon name="loader" size={14} className="animate-spin" /> : <Icon name="zap" size={14} />}
-                                    {isAiAdvising ? '分析中...' : '產生本月建議'}
+                        {/* AI 理財顧問 */}
+                        <div className="surface" style={{ padding: '18px 20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 32, height: 32, background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Icon name="zap" size={15} style={{ color: 'white' }} />
+                                    </div>
+                                    <div>
+                                        <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>AI 理財顧問</p>
+                                        <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-3)' }}>根據本月收支給予財務建議</p>
+                                    </div>
+                                </div>
+                                <button onClick={handleGenerateAdvice} disabled={isAiAdvising} className="btn-pri" style={{ padding: '7px 14px', fontSize: '0.8rem', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
+                                    {isAiAdvising ? <><Icon name="loader" size={13} className="animate-spin" /> 分析中...</> : <><Icon name="sparkles" size={13} /> 產生建議</>}
                                 </button>
                             </div>
-                            {aiAdvice && <div className="mt-3 text-sm text-purple-800 leading-relaxed bg-white/60 p-4 rounded-xl markdown-body">{renderMarkdown(aiAdvice)}</div>}
-                            {!aiAdvice && !isAiAdvising && <p className="text-sm text-purple-600/70 mt-1">點擊按鈕，讓 AI 根據您本月的收支狀況與資產配置給予專業理財建議。</p>}
+                            {aiAdvice
+                                ? <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '14px 16px', fontSize: '0.875rem', color: 'var(--text-2)', lineHeight: 1.7 }} className="markdown-body">{renderMarkdown(aiAdvice)}</div>
+                                : !isAiAdvising && <p style={{ color: 'var(--text-3)', fontSize: '0.82rem', margin: 0 }}>點擊「產生建議」，讓 AI 根據本月收支與資產配置給出理財建議。</p>
+                            }
                         </div>
 
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold text-gray-800">月度分析</h3>
-                            <input type="month" value={analysisMonth} onChange={e => setAnalysisMonth(e.target.value)} className="p-2 border rounded-lg text-sm outline-none" />
+                        {/* 月度分析標題 */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text)' }}>月度分析</h3>
+                            <input type="month" value={analysisMonth} onChange={e => setAnalysisMonth(e.target.value)} className="field" style={{ width: 'auto', padding: '6px 10px' }} />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                                <p className="text-emerald-800 text-sm font-medium mb-1">總收入</p>
-                                <p className="text-xl font-bold text-emerald-600">${analysisData.totalIncome.toLocaleString()}</p>
+                        {/* 收入 / 支出 stat cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                            <div className="surface stat-card">
+                                <p style={{ margin: '0 0 6px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>總收入</p>
+                                <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--income)' }}>${analysisData.totalIncome.toLocaleString()}</p>
                             </div>
-                            <div className="bg-rose-50 p-4 rounded-xl border border-rose-100">
-                                <p className="text-rose-800 text-sm font-medium mb-1">總支出</p>
-                                <p className="text-xl font-bold text-rose-600">${analysisData.totalExpense.toLocaleString()}</p>
+                            <div className="surface stat-card">
+                                <p style={{ margin: '0 0 6px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>總支出</p>
+                                <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--expense)' }}>${analysisData.totalExpense.toLocaleString()}</p>
+                            </div>
+                            <div className="surface stat-card">
+                                <p style={{ margin: '0 0 6px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>結餘</p>
+                                <p style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: (analysisData.totalIncome - analysisData.totalExpense) >= 0 ? 'var(--income)' : 'var(--expense)' }}>
+                                    ${(analysisData.totalIncome - analysisData.totalExpense).toLocaleString()}
+                                </p>
                             </div>
                         </div>
 
@@ -1803,78 +2095,143 @@ ${txListStr}
 
             if (!isAuthenticated) {
                 return (
-                    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-                        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
-                            <div className="flex justify-center mb-6">
-                                <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center text-white text-3xl font-bold">帳</div>
-                            </div>
-                            <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">家庭記帳本登入</h2>
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <div>
-                                    <input type="password" value={systemPassword} onChange={e => setSystemPassword(e.target.value)} className="w-full p-3.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center tracking-widest font-mono" placeholder="請輸入系統密碼" autoFocus />
+                    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'linear-gradient(135deg, #0c0c1a 0%, #111118 45%, #0d1117 100%)', position: 'relative', overflow: 'hidden' }}>
+                        {/* Decorative blobs */}
+                        <div style={{ position: 'absolute', top: '12%', left: '8%', width: 320, height: 320, background: 'radial-gradient(circle, rgba(99,102,241,0.16) 0%, transparent 65%)', borderRadius: '50%', filter: 'blur(30px)', pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', bottom: '15%', right: '8%', width: 260, height: 260, background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 65%)', borderRadius: '50%', filter: 'blur(30px)', pointerEvents: 'none' }} />
+                        <div style={{ position: 'absolute', top: '55%', left: '55%', width: 180, height: 180, background: 'radial-gradient(circle, rgba(6,182,212,0.08) 0%, transparent 65%)', borderRadius: '50%', filter: 'blur(25px)', pointerEvents: 'none' }} />
+
+                        <div className="glass" style={{ padding: '40px 36px', width: '100%', maxWidth: 360, borderRadius: 24, position: 'relative' }}>
+                            {/* App icon */}
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+                                <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 32px rgba(99,102,241,0.45), 0 2px 8px rgba(0,0,0,0.3)' }}>
+                                    <span style={{ color: 'white', fontSize: 26, fontWeight: 800, lineHeight: 1 }}>帳</span>
                                 </div>
-                                {loginError && <p className="text-red-500 text-sm text-center">{loginError}</p>}
-                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3.5 rounded-xl transition-colors shadow-sm">解鎖系統</button>
+                            </div>
+
+                            <h2 style={{ color: '#f4f4f5', fontWeight: 700, fontSize: '1.35rem', textAlign: 'center', margin: '0 0 6px' }}>家庭記帳本</h2>
+                            <p style={{ color: '#52525b', fontSize: '0.85rem', textAlign: 'center', margin: '0 0 28px' }}>請輸入密碼以解鎖系統</p>
+
+                            <form onSubmit={handleLogin}>
+                                <input
+                                    type="password"
+                                    value={systemPassword}
+                                    onChange={e => setSystemPassword(e.target.value)}
+                                    style={{ display: 'block', width: '100%', padding: '13px 16px', background: 'rgba(255,255,255,0.06)', border: `1px solid ${loginError ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 12, outline: 'none', color: '#f4f4f5', fontSize: '1rem', textAlign: 'center', letterSpacing: '0.25em', fontFamily: 'monospace', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
+                                    placeholder="••••••••"
+                                    autoFocus
+                                />
+                                {loginError && <p style={{ color: '#f87171', fontSize: '0.8rem', textAlign: 'center', marginTop: 8, marginBottom: 0 }}>{loginError}</p>}
+                                <button type="submit" style={{ display: 'block', width: '100%', marginTop: 16, padding: '13px', background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', border: 'none', borderRadius: 12, color: 'white', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 20px rgba(99,102,241,0.4)', transition: 'opacity 0.15s, transform 0.1s', letterSpacing: '0.01em' }}
+                                    onMouseOver={e => e.currentTarget.style.opacity = '0.9'}
+                                    onMouseOut={e => e.currentTarget.style.opacity = '1'}
+                                    onMouseDown={e => e.currentTarget.style.transform = 'scale(0.98)'}
+                                    onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                >
+                                    解鎖系統
+                                </button>
                             </form>
                         </div>
                     </div>
                 );
             }
 
+            const NAV_TABS = [
+                { id: 'record',   icon: 'edit-3',      label: '記帳' },
+                { id: 'wallet',   icon: 'credit-card', label: '錢包與資產' },
+                { id: 'analysis', icon: 'trending-up', label: '收支分析' },
+                { id: 'taishin',  icon: 'award',       label: '台新卡權益' },
+                { id: 'settings', icon: 'settings',    label: '系統設定' },
+            ];
+
             return (
-                <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
-                    <nav className="hidden md:flex flex-col w-64 fixed h-full bg-white border-r z-20 top-0 left-0 pt-6">
-                        <div className="px-6 mb-8 flex items-center justify-between">
-                            <h1 className="font-bold text-xl text-gray-800 tracking-tight">家庭記帳本</h1>
-                            {isSyncing && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500" title="同步中..." />}
+                <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
+
+                    {/* ── Desktop Sidebar ── */}
+                    <nav className="hidden md:flex" style={{ flexDirection: 'column', width: 220, position: 'fixed', height: '100%', background: 'var(--sidebar)', zIndex: 20, top: 0, left: 0, borderRight: '1px solid var(--sidebar-border)' }}>
+                        {/* Logo */}
+                        <div style={{ padding: '18px 14px 14px', borderBottom: '1px solid var(--sidebar-border)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 10px rgba(99,102,241,0.35)' }}>
+                                    <span style={{ color: 'white', fontWeight: 800, fontSize: 15 }}>帳</span>
+                                </div>
+                                <div>
+                                    <div style={{ color: '#f4f4f5', fontSize: '0.9rem', fontWeight: 700, lineHeight: 1.2 }}>家庭記帳本</div>
+                                    {isSyncing
+                                        ? <span style={{ color: '#818cf8', fontSize: '0.68rem', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}><Icon name="refresh-cw" size={10} className="animate-spin" /> 同步中...</span>
+                                        : <span style={{ color: '#52525b', fontSize: '0.68rem' }}>家庭財務管理</span>
+                                    }
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex flex-col gap-2 px-4 flex-1">
-                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包與資產' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }, { id: 'taishin', icon: 'search', label: '台新權益' }, { id: 'settings', icon: 'settings', label: '系統設定' }].map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center justify-start gap-3 px-4 py-3 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>
-                                    <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
-                                    <span className="text-sm font-medium">{tab.label}</span>
+
+                        {/* Nav */}
+                        <div style={{ flex: 1, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+                            {NAV_TABS.map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`s-item${activeTab === tab.id ? ' active' : ''}`}>
+                                    <Icon name={tab.icon} size={16} />
+                                    <span>{tab.label}</span>
                                 </button>
                             ))}
                         </div>
-                        <div className="p-4 border-t">
-                            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
-                                <Icon name="log-out" size={16} /> 登出系統
+
+                        {/* Footer */}
+                        <div style={{ padding: '10px 10px', borderTop: '1px solid var(--sidebar-border)' }}>
+                            <div style={{ padding: '6px 12px 10px' }}>
+                                <div style={{ color: '#3f3f46', fontSize: '0.68rem', marginBottom: 2 }}>目前填報者</div>
+                                <select value={currentUser} onChange={e => setCurrentUser(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#d4d4d8', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', outline: 'none', fontFamily: 'inherit', padding: 0, width: '100%' }}>
+                                    {users.map(u => <option key={u} value={u} style={{ background: '#18181b' }}>{u}</option>)}
+                                </select>
+                            </div>
+                            <button onClick={handleLogout} className="s-item" style={{ color: '#71717a' }}>
+                                <Icon name="log-out" size={15} />
+                                <span>登出系統</span>
                             </button>
                         </div>
                     </nav>
 
-                    <nav className="md:hidden fixed bottom-0 w-full bg-white border-t z-20">
-                        <div className="flex justify-around p-2">
-                            {[{ id: 'record', icon: 'book-open', label: '記帳' }, { id: 'wallet', icon: 'credit-card', label: '錢包' }, { id: 'analysis', icon: 'pie-chart', label: '分析' }, { id: 'taishin', icon: 'search', label: '權益' }].map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center justify-center gap-1 p-2 rounded-xl transition-colors w-full ${activeTab === tab.id ? 'text-blue-600' : 'text-gray-500 hover:text-gray-900'}`}>
-                                    <Icon name={tab.icon} size={20} className={activeTab === tab.id ? 'stroke-current' : ''} />
-                                    <span className="text-[10px] font-medium">{tab.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                    {/* ── Mobile Bottom Nav ── */}
+                    <nav className="md:hidden" style={{ display: 'flex', position: 'fixed', bottom: 0, width: '100%', background: 'var(--sidebar)', borderTop: '1px solid var(--sidebar-border)', zIndex: 20, padding: '6px 4px 12px' }}>
+                        {[
+                            { id: 'record',   icon: 'edit-3',      label: '記帳' },
+                            { id: 'wallet',   icon: 'credit-card', label: '錢包' },
+                            { id: 'analysis', icon: 'trending-up', label: '分析' },
+                            { id: 'taishin',  icon: 'award',       label: '台新' },
+                            { id: 'settings', icon: 'settings',    label: '設定' },
+                        ].map(tab => (
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 0', border: 'none', background: 'none', cursor: 'pointer', color: activeTab === tab.id ? '#818cf8' : '#52525b', transition: 'color 0.14s', fontFamily: 'inherit' }}>
+                                <Icon name={tab.icon} size={19} />
+                                <span style={{ fontSize: '10px', fontWeight: 500 }}>{tab.label}</span>
+                            </button>
+                        ))}
                     </nav>
 
-                    <div className="flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-0">
-                        <header className="bg-white border-b sticky top-0 z-10">
-                            <div className="px-4 py-3 flex justify-between items-center max-w-4xl mx-auto w-full">
-                                <div className="flex items-center gap-2">
-                                    <h1 className="font-bold text-xl text-gray-800 tracking-tight md:hidden">家庭記帳本</h1>
-                                    {isSyncing && <Icon name="refresh-cw" size={18} className="animate-spin text-blue-500 md:hidden" title="同步中..." />}
+                    {/* ── Content ── */}
+                    <div className="md:ml-[220px]" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+
+                        {/* Mobile header */}
+                        <header className="md:hidden" style={{ background: 'var(--sidebar)', borderBottom: '1px solid var(--sidebar-border)', position: 'sticky', top: 0, zIndex: 10 }}>
+                            <div style={{ padding: '11px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 30, height: 30, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{ color: 'white', fontWeight: 800, fontSize: 13 }}>帳</span>
+                                    </div>
+                                    <span style={{ color: '#f4f4f5', fontSize: '1rem', fontWeight: 700 }}>家庭記帳本</span>
+                                    {isSyncing && <Icon name="refresh-cw" size={13} className="animate-spin" style={{ color: '#6366f1' }} />}
                                 </div>
-                                <div className="flex items-center gap-2 ml-auto">
-                                    <button onClick={handleLogout} className="md:hidden p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors" title="登出系統">
-                                        <Icon name="log-out" size={16} />
-                                    </button>
-                                    <span className="text-sm text-gray-500 hidden md:inline">目前填報者：</span>
-                                    <select value={currentUser} onChange={e => setCurrentUser(e.target.value)} className="text-sm bg-gray-100 border-none rounded-full px-4 py-1.5 focus:ring-0 cursor-pointer outline-none">
-                                        {users.map(u => <option key={u} value={u}>{u}</option>)}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <select value={currentUser} onChange={e => setCurrentUser(e.target.value)} style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc', borderRadius: 99, padding: '4px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', outline: 'none', fontFamily: 'inherit' }}>
+                                        {users.map(u => <option key={u} value={u} style={{ background: '#18181b' }}>{u}</option>)}
                                     </select>
+                                    <button onClick={handleLogout} style={{ padding: '5px 6px', borderRadius: 8, background: 'rgba(239,68,68,0.12)', border: 'none', cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center' }}>
+                                        <Icon name="log-out" size={15} />
+                                    </button>
                                 </div>
                             </div>
                         </header>
 
-                        <main className="max-w-4xl mx-auto p-4 md:p-6 w-full">
-                            <div className="animate-in fade-in duration-300">
+                        <main style={{ maxWidth: 920, margin: '0 auto', padding: '20px 16px 80px', width: '100%' }} className="md:px-6 md:py-6 md:pb-6">
+                            <div className="fade-in">
                                 {activeTab === 'record' && renderRecordView()}
                                 {activeTab === 'wallet' && renderWalletView()}
                                 {activeTab === 'analysis' && renderAnalysisView()}
